@@ -122,6 +122,18 @@ def get_svhn(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_pr
         test_loader = get_SVHN_testloader(128, num_workers, False, path_to_data)
         return train_loader, test_loader
 
+
+def get_flowers102(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_proportion = 1.0, noniid_ratio =1.0, augmentation_option = False, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data/imagnet-12"):
+    if pairloader_option != "None":
+        train_loader = get_flowers102_pairloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, pairloader_option, hetero, hetero_string, path_to_data)
+        mem_loader = get_flowers102_trainloader(128, num_workers, False, path_to_data = path_to_data)
+        test_loader = get_flowers102_testloader(128, num_workers, False, path_to_data)
+        return train_loader, mem_loader, test_loader
+    else:
+        train_loader = get_flowers102_trainloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, augmentation_option, hetero, hetero_string, path_to_data)
+        test_loader = get_flowers102_testloader(128, num_workers, False, path_to_data)
+        return train_loader, test_loader
+
 # def get_svhn(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_proportion = 1.0, noniid_ratio =1.0, augmentation_option = False, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2"):
 #     train_loader = get_SVHN_trainloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, augmentation_option, hetero, hetero_string)
 #     test_loader = get_SVHN_testloader(128, num_workers, False)
@@ -377,10 +389,8 @@ def get_imagenet_testloader(batch_size=16, num_workers=2, shuffle=False, path_to
 
 
 
-def get_imagenet12_pairloader(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data/imagnet-12"):
-    class imagenet12Pair(torchvision.datasets.ImageFolder):
-        """tinyimagenet Dataset.
-        """
+def get_flowers102_pairloader(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data/imagnet-12"):
+    class Flowers102Pair(torchvision.datasets.Flowers102):
         def __getitem__(self, index):
             """
             Args:
@@ -389,11 +399,8 @@ def get_imagenet12_pairloader(batch_size=16, num_workers=2, shuffle=True, num_cl
             Returns:
                 tuple: (sample, target) where target is class_index of the target class.
             """
-            path, _ = self.samples[index]
-            sample = self.loader(path)
-            if self.transform is not None:
-                im_1 = self.transform(sample)
-                im_2 = self.transform(sample)
+            im_1, _  = super().__getitem__(index)
+            im_2, _ = super().__getitem__(index)
             
             return im_1, im_2
 
@@ -421,7 +428,7 @@ def get_imagenet12_pairloader(batch_size=16, num_workers=2, shuffle=True, num_cl
             transforms.ToTensor(),
             transforms.Normalize(IMAGENET_TRAIN_MEAN, IMAGENET_TRAIN_STD)])
     # data prepare
-    train_data = imagenet12Pair(f'{path_to_data}/train', transform=train_transform)
+    train_data = Flowers102Pair(path_to_data, split="train", transform=train_transform, download=True)
     
     indices = torch.randperm(len(train_data))[:int(len(train_data)* data_portion)]
 
@@ -431,7 +438,117 @@ def get_imagenet12_pairloader(batch_size=16, num_workers=2, shuffle=True, num_cl
     
     return imagenet_training_loader
 
-def get_imagenet12_trainloader(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, augmentation_option = False, hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data/imagnet-12"):
+def get_flowers102_trainloader(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, augmentation_option = False, hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data/imagnet-12"):
+    """ return training dataloader
+    Returns: train_data_loader:torch dataloader object
+    """
+    if augmentation_option:
+        transform_train = transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(15),
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGENET_TRAIN_MEAN, IMAGENET_TRAIN_STD)
+        ])
+    else:
+        transform_train = transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGENET_TRAIN_MEAN, IMAGENET_TRAIN_STD)
+        ])
+    # train_dir = os.path.join(path_to_data, 'train')
+    # imagenet_training = torchvision.datasets.ImageFolder(train_dir, transform=transform_train)
+    flowers_training = torchvision.datasets.Flowers102(path_to_data, split="train", transform=transform_train)
+
+    n_data = len(flowers_training)
+
+    indices = torch.randperm(n_data)[:int(n_data* data_portion)]
+
+    imagenet_training = torch.utils.data.Subset(flowers_training, indices)
+
+    loader = get_multiclient_trainloader_list(imagenet_training, num_client, shuffle, num_workers, batch_size, noniid_ratio, 12, hetero, hetero_string)
+
+    return loader
+
+
+def get_flowers102_testloader(batch_size=16, num_workers=2, shuffle=False, path_to_data = "./data/imagnet-12"):
+    """ return training dataloader
+    Returns: imagenet_test_loader:torch dataloader object
+    """
+    transform_test = transforms.Compose([
+        transforms.RandomResizedCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(IMAGENET_TRAIN_MEAN, IMAGENET_TRAIN_STD)
+    ])
+    flowers_test = torchvision.datasets.Flowers102(path_to_data, split="test", transform=transform_test)
+
+    imagenet_test_loader = DataLoader(flowers_test, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size)
+    
+    return imagenet_test_loader
+
+
+def get_imagenet12_pairloader(batch_size=16, num_workers=2, shuffle=True, num_client=1, data_portion=1.0,
+                              noniid_ratio=1.0, pairloader_option="None", hetero=False,
+                              hetero_string="0.2_0.8|16|0.8_0.2", path_to_data="./data/imagnet-12"):
+    class imagenet12Pair(torchvision.datasets.ImageFolder):
+        """tinyimagenet Dataset.
+        """
+
+        def __getitem__(self, index):
+            """
+            Args:
+                index (int): Index
+
+            Returns:
+                tuple: (sample, target) where target is class_index of the target class.
+            """
+            path, _ = self.samples[index]
+            sample = self.loader(path)
+            if self.transform is not None:
+                im_1 = self.transform(sample)
+                im_2 = self.transform(sample)
+
+            return im_1, im_2
+
+    # tinyimagenet_training = datasets.ImageFolder('tiny-imagenet-200/train', transform=transform_train)
+    # tinyimagenet_testing = datasets.ImageFolder('tiny-imagenet-200/val', transform=transform_test)
+    if pairloader_option == "mocov1":
+        train_transform = transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
+            transforms.RandomGrayscale(p=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGENET_TRAIN_MEAN, IMAGENET_TRAIN_STD)])
+    elif pairloader_option == "mocov2":
+        train_transform = transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
+            transforms.RandomGrayscale(p=0.2),
+            transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGENET_TRAIN_MEAN, IMAGENET_TRAIN_STD)])
+    else:
+        train_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGENET_TRAIN_MEAN, IMAGENET_TRAIN_STD)])
+    # data prepare
+    train_data = imagenet12Pair(f'{path_to_data}/train', transform=train_transform)
+
+    indices = torch.randperm(len(train_data))[:int(len(train_data) * data_portion)]
+
+    train_data = torch.utils.data.Subset(train_data, indices)
+
+    imagenet_training_loader = get_multiclient_trainloader_list(train_data, num_client, shuffle, num_workers,
+                                                                batch_size, noniid_ratio, 12, hetero, hetero_string)
+
+    return imagenet_training_loader
+
+
+def get_imagenet12_trainloader(batch_size=16, num_workers=2, shuffle=True, num_client=1, data_portion=1.0,
+                               noniid_ratio=1.0, augmentation_option=False, hetero=False,
+                               hetero_string="0.2_0.8|16|0.8_0.2", path_to_data="./data/imagnet-12"):
     """ return training dataloader
     Returns: train_data_loader:torch dataloader object
     """
@@ -452,16 +569,17 @@ def get_imagenet12_trainloader(batch_size=16, num_workers=2, shuffle=True, num_c
     train_dir = os.path.join(path_to_data, 'train')
     imagenet_training = torchvision.datasets.ImageFolder(train_dir, transform=transform_train)
 
-    indices = torch.randperm(len(imagenet_training))[:int(len(imagenet_training)* data_portion)]
+    indices = torch.randperm(len(imagenet_training))[:int(len(imagenet_training) * data_portion)]
 
     imagenet_training = torch.utils.data.Subset(imagenet_training, indices)
 
-    imagenet_training_loader = get_multiclient_trainloader_list(imagenet_training, num_client, shuffle, num_workers, batch_size, noniid_ratio, 12, hetero, hetero_string)
+    imagenet_training_loader = get_multiclient_trainloader_list(imagenet_training, num_client, shuffle, num_workers,
+                                                                batch_size, noniid_ratio, 12, hetero, hetero_string)
 
     return imagenet_training_loader
 
 
-def get_imagenet12_testloader(batch_size=16, num_workers=2, shuffle=False, path_to_data = "./data/imagnet-12"):
+def get_imagenet12_testloader(batch_size=16, num_workers=2, shuffle=False, path_to_data="./data/imagnet-12"):
     """ return training dataloader
     Returns: imagenet_test_loader:torch dataloader object
     """
@@ -473,7 +591,7 @@ def get_imagenet12_testloader(batch_size=16, num_workers=2, shuffle=False, path_
     train_dir = os.path.join(path_to_data, 'val')
     imagenet_test = torchvision.datasets.ImageFolder(train_dir, transform=transform_test)
     imagenet_test_loader = DataLoader(imagenet_test, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size)
-    
+
     return imagenet_test_loader
 
 def get_stl10_pairloader(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"):

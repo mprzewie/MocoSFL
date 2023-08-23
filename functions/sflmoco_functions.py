@@ -57,6 +57,7 @@ class sflmoco_simulator(base_simulator):
         self.K_dim = args.K_dim
         self.data_size = args.data_size
         self.arch = args.arch
+
     def linear_eval(self, memloader, num_epochs = 100, lr = 3.0): # Use linear evaluation
         """
         Run Linear evaluation
@@ -115,7 +116,7 @@ class sflmoco_simulator(base_simulator):
                 loss.backward()
                 linear_optimizer.step()
                 linear_scheduler.step()
-            
+
             """
             Run validation
             """
@@ -138,6 +139,7 @@ class sflmoco_simulator(base_simulator):
             avg_accu = top1.avg
             if avg_accu > best_avg_accu:
                 best_avg_accu = avg_accu
+
             print(f"Epoch: {epoch}, linear eval accuracy - current: {avg_accu:.2f}, best: {best_avg_accu:.2f}")
         
         self.model.merge_classifier_cloud()
@@ -395,7 +397,12 @@ class create_sflmocoserver_instance(create_base_instance):
                 pool = range(self.num_client)
             l_neg_list = []
             for client_id in pool:
-                l_neg_list.append(torch.einsum('nc,ck->nk', [query_out[client_id*self.batch_size:(client_id + 1)*self.batch_size], self.queue[client_id].clone().detach()]))
+                l_neg_list.append(torch.einsum(
+                    'nc,ck->nk', [
+                        query_out[client_id*self.batch_size:(client_id + 1)*self.batch_size],
+                        self.queue[client_id].clone().detach()
+                    ]
+                ))
             l_neg = torch.cat(l_neg_list, dim = 0)
 
         logits = torch.cat([l_pos, l_neg], dim=1)

@@ -160,10 +160,19 @@ if not args.resume:
             #server compute
             loss, gradient, accu = sfl.s_instance.compute(stack_hidden_query, stack_hidden_pkey, pool = pool)
 
+
+
             sfl.s_optimizer.step() # with reduced step, to simulate a large batch size.
 
             if VERBOSE and (batch% 50 == 0 or batch == num_batch - 1):
                 sfl.log(f"epoch {epoch} batch {batch}, loss {loss}")
+                sfl.log_metrics(
+                    {
+                        "epoch": epoch,
+                        "contrastive/loss/batch": loss,
+                        "contrastive/accuracy/batch": accu,
+                    }
+                )
             avg_loss += loss
             avg_accu += accu
 
@@ -231,37 +240,52 @@ if not args.resume:
         if knn_val_acc > knn_accu_max:
             knn_accu_max = knn_val_acc
             sfl.save_model(epoch, is_best = True)
+
+        metrics_to_log = {
+                "epoch": epoch,
+                "knn/accuracy/val": knn_val_acc,
+                "contrastive/accuracy/epoch": avg_accu,
+                "contrastive/loss/epoch": avg_loss,
+            }
+
         epoch_logging_msg = f"epoch:{epoch}, knn_val_accu: {knn_val_acc:.2f}, contrast_loss: {avg_loss:.2f}, contrast_acc: {avg_accu:.2f}"
         
         if args.enable_ressfl:
             epoch_logging_msg += f", gan_train_loss: {avg_gan_train_loss:.2f}, gan_eval_loss: {avg_gan_eval_loss:.2f}"
-        
+            metrics_to_log["ressfl/gan_train_loss"] = avg_gan_train_loss
+            metrics_to_log["ressfl/gan_eval_loss"] = avg_gan_eval_loss
+
+        sfl.log_metrics(metrics_to_log)
         sfl.log(epoch_logging_msg)
         gc.collect()
 if args.loss_threshold > 0.0:
     saving = loss_status.epoch_recording["C"] + loss_status.epoch_recording["B"]/2
     sfl.log(f"Communiation saving: {saving} / {args.num_epoch}")
 
-
+metrics_test = dict()
 '''Testing'''
 sfl.load_model() # load model that has the lowest contrastive loss.
 # finally, do a thorough evaluation.
 val_acc = sfl.knn_eval(memloader=mem_loader)
 sfl.log(f"final knn evaluation accuracy is {val_acc:.2f}")
+metrics_test["knn/accuracy/test"] = val_acc
 
 create_train_dataset = getattr(datasets, f"get_{args.dataset}_trainloader")
 
 eval_loader = create_train_dataset(128, args.num_workers, False, 1, 1.0, 1.0, False)
 val_acc = sfl.linear_eval(eval_loader, 100)
 sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
+metrics_test["test_linear"] = val_acc
 
 eval_loader = create_train_dataset(128, args.num_workers, False, 1, 0.1, 1.0, False)
 val_acc = sfl.semisupervise_eval(eval_loader, 100)
 sfl.log(f"final semi-supervised evaluation accuracy with 10% data is {val_acc:.2f}")
+metrics_test["test_semi/10"] = val_acc
 
 eval_loader = create_train_dataset(128, args.num_workers, False, 1, 0.01, 1.0, False)
 val_acc = sfl.semisupervise_eval(eval_loader, 100)
 sfl.log(f"final semi-supervised evaluation accuracy with 1% data is {val_acc:.2f}")
+metrics_test["test_semi/1"] = val_acc
 
 if args.attack:
     '''Evaluate Privacy'''

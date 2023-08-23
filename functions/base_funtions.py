@@ -8,17 +8,24 @@ To understand how the training works in this implementation of SFL. We provide a
 Refer to Thapa et al. https://arxiv.org/abs/2004.12088 for technical details.
 
 '''
-
+import os
 from email.policy import strict
+from pathlib import Path
+
 import torch
 import logging
-from utils import AverageMeter, accuracy, average_weights
+
+import wandb
+
+from utils import AverageMeter, accuracy, average_weights, maybe_setup_wandb
 from utils import setup_logger
 class base_simulator:
     def __init__(self, model, criterion, train_loader, test_loader, args) -> None:
         if not model.cloud_classifier_merge:
             model.merge_classifier_cloud()
         model_log_file = args.output_dir + '/output.log'
+
+        maybe_setup_wandb(args.output_dir, args=args)
         self.logger = setup_logger('default_logger', model_log_file, level=logging.DEBUG)
         self.model = model
         self.criterion = criterion
@@ -209,6 +216,15 @@ class base_simulator:
     def log(self, message):
         self.logger.debug(message)
 
+    def log_metrics(self, metrics: dict):
+        metrics = {
+            k: v.item() if isinstance(v, torch.Tensor) else v
+            for (k,v) in metrics.items()
+        }
+        if wandb.run is not None:
+            wandb.log(metrics)
+        self.logger.debug(" | ".join([f"{k}: {v}" for (k,v) in metrics.items()]))
+
 class create_iterator():
     def __init__(self, iterator) -> None:
         self.iterator = iterator
@@ -240,3 +256,4 @@ class create_base_instance:
     
     def cpu(self):
         self.model.cpu()
+
