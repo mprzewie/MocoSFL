@@ -20,7 +20,7 @@ import wandb
 from utils import AverageMeter, accuracy, average_weights, maybe_setup_wandb
 from utils import setup_logger
 class base_simulator:
-    def __init__(self, model, criterion, train_loader, test_loader, args) -> None:
+    def __init__(self, model, criterion, train_loader, test_loader, per_client_test_loader, args) -> None:
         if not model.cloud_classifier_merge:
             model.merge_classifier_cloud()
         model_log_file = args.output_dir + '/output.log'
@@ -49,6 +49,7 @@ class base_simulator:
         #initialize data iterator
         self.client_dataloader = train_loader
         self.validate_loader = test_loader
+        self.per_client_test_loaders = per_client_test_loader
         self.client_iterator_list = []
         if train_loader is not None:
             for client_id in range(args.num_client):
@@ -58,7 +59,7 @@ class base_simulator:
     def next_data_batch(self, client_id):
         try:
             images, labels = next(self.client_iterator_list[client_id])
-            if images.size(0) != self.batch_size:
+            if len(images) != self.batch_size:
                 try:
                     next(self.client_iterator_list[client_id])
                 except StopIteration:
@@ -192,14 +193,20 @@ class base_simulator:
     def save_model(self, epoch, is_best=False):
         if is_best:
             epoch = "best"
-        torch.save(self.model.cloud.state_dict(), self.output_dir + '/checkpoint_s_{}.tar'.format(epoch))
-        torch.save(self.model.local_list[0].state_dict(), self.output_dir + '/checkpoint_c_{}.tar'.format(epoch))
-    
+        torch.save(self.model.cloud.state_dict(), self.output_dir + f'/checkpoint_s_{epoch}.tar')
+        torch.save(self.model.local_list[0].state_dict(), self.output_dir + f'/checkpoint_c_{epoch}.tar')
+        torch.save({"local_models": [
+            c.state_dict() for c in self.model.local_list
+        ]}, self.output_dir + f'/checkpoint_locals_{epoch}.tar')
+
+
     def load_model(self, is_best=True, epoch=200):
         if is_best:
             epoch = "best"
         checkpoint_s = torch.load(self.output_dir + '/checkpoint_s_{}.tar'.format(epoch))
         self.model.cloud.load_state_dict(checkpoint_s)
+
+        # warning - all clients load the centralized version of the model!
         checkpoint_c = torch.load(self.output_dir + '/checkpoint_c_{}.tar'.format(epoch))
         for i in range(self.num_client):
             self.model.local_list[i].load_state_dict(checkpoint_c)
@@ -216,14 +223,16 @@ class base_simulator:
     def log(self, message):
         self.logger.debug(message)
 
-    def log_metrics(self, metrics: dict):
+    def log_metrics(self, metrics: dict, verbose=True):
         metrics = {
             k: v.item() if isinstance(v, torch.Tensor) else v
             for (k,v) in metrics.items()
         }
         if wandb.run is not None:
             wandb.log(metrics)
-        self.logger.debug(" | ".join([f"{k}: {v}" for (k,v) in metrics.items()]))
+
+        if verbose:
+            self.logger.debug(" | ".join([f"{k}: {v}" for (k,v) in metrics.items()]))
 
 class create_iterator():
     def __init__(self, iterator) -> None:

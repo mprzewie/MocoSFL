@@ -24,10 +24,19 @@ set_deterministic(args.seed)
 '''Preparing'''
 #get data
 create_dataset = getattr(datasets, f"get_{args.dataset}")
-train_loader, mem_loader, test_loader = create_dataset(batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True, 
-                                                        num_client = args.num_client, data_proportion = args.data_proportion, 
-                                                        noniid_ratio = args.noniid_ratio, augmentation_option = True, 
-                                                        pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string)
+
+(
+    train_loader,
+    mem_loader,
+    test_loader,
+    per_client_test_loaders,
+    client_to_labels
+) = create_dataset(
+    batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True,
+    num_client = args.num_client, data_proportion = args.data_proportion,
+    noniid_ratio = args.noniid_ratio, augmentation_option = True,
+    pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string
+)
 num_batch = len(train_loader[0])
 
 if "ResNet" in args.arch or "resnet" in args.arch:
@@ -67,7 +76,7 @@ global_model.merge_classifier_cloud()
 criterion = nn.CrossEntropyLoss().cuda()
 
 #initialize sfl
-sfl = sflmoco_simulator(global_model, criterion, train_loader, test_loader, args)
+sfl = sflmoco_simulator(global_model, criterion, train_loader, test_loader, per_client_test_loader=per_client_test_loaders, args=args)
 
 '''Initialze with ResSFL resilient model ''' 
 if args.initialze_path != "None":
@@ -131,7 +140,7 @@ if not args.resume:
 
                 #client forward
                 for i, client_id in enumerate(pool): # if distributed, this can be parallelly done.
-                    query, pkey = sfl.next_data_batch(client_id)
+                    (query, pkey), _ = sfl.next_data_batch(client_id) # _ is label, but we don't use it here!
 
                     if args.cutlayer > 1:
                         query = query.cuda()
@@ -164,15 +173,17 @@ if not args.resume:
 
             sfl.s_optimizer.step() # with reduced step, to simulate a large batch size.
 
-            if VERBOSE and (batch% 50 == 0 or batch == num_batch - 1):
-                sfl.log(f"epoch {epoch} batch {batch}, loss {loss}")
-                sfl.log_metrics(
-                    {
-                        "epoch": epoch,
-                        "contrastive/loss/batch": loss,
-                        "contrastive/accuracy/batch": accu,
-                    }
-                )
+
+            # if VERBOSE and :
+                # sfl.log(f"epoch {epoch} batch {batch}, loss {loss}")
+            sfl.log_metrics(
+                {
+                    "epoch": epoch,
+                    "contrastive/loss/batch": loss,
+                    "contrastive/accuracy/batch": accu,
+                },
+                verbose=(batch% 50 == 0 or batch == num_batch - 1)
+            )
             avg_loss += loss
             avg_accu += accu
 
@@ -222,8 +233,15 @@ if not args.resume:
                 # sync client-side models
                 divergence_list = sfl.fedavg(pool, divergence_aware = args.divergence_aware, divergence_measure = args.divergence_measure)
                 if divergence_list is not None:
-                    sfl.log(f"divergence mean: {np.mean(divergence_list)}, std: {np.std(divergence_list)} and detailed_list: {divergence_list}")
-                    
+                    # sfl.log(f"divergence mean: {np.mean(divergence_list)}, std: {np.std(divergence_list)} and detailed_list: {divergence_list}")
+                    sfl.log_metrics({
+                        "fl/divergence/mean": np.mean(divergence_list),
+                        "fl/divergence/std": np.mean(divergence_list),
+                        **{
+                            f"fl/divergence/{i}": d
+                            for (i, d) in enumerate(divergence_list)
+                        }
+                    })
         sfl.s_scheduler.step()
 
         avg_accu = avg_accu / num_batch
@@ -263,6 +281,7 @@ if args.loss_threshold > 0.0:
     sfl.log(f"Communiation saving: {saving} / {args.num_epoch}")
 
 metrics_test = dict()
+
 '''Testing'''
 sfl.load_model() # load model that has the lowest contrastive loss.
 # finally, do a thorough evaluation.
@@ -275,17 +294,28 @@ create_train_dataset = getattr(datasets, f"get_{args.dataset}_trainloader")
 eval_loader = create_train_dataset(128, args.num_workers, False, 1, 1.0, 1.0, False)
 val_acc = sfl.linear_eval(eval_loader, 100)
 sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
-metrics_test["test_linear"] = val_acc
+metrics_test["test_linear/global"] = val_acc
 
-eval_loader = create_train_dataset(128, args.num_workers, False, 1, 0.1, 1.0, False)
-val_acc = sfl.semisupervise_eval(eval_loader, 100)
-sfl.log(f"final semi-supervised evaluation accuracy with 10% data is {val_acc:.2f}")
-metrics_test["test_semi/10"] = val_acc
+client_accuracies = []
+for client_id in sfl.per_client_test_loaders.keys():
+    client_acc = sfl.linear_eval(memloader=None, num_epochs=100, client_id=client_id)
+    metrics_test[f"test_linear/client/{client_id}"] = client_acc
+    client_accuracies.append(client_acc)
 
-eval_loader = create_train_dataset(128, args.num_workers, False, 1, 0.01, 1.0, False)
-val_acc = sfl.semisupervise_eval(eval_loader, 100)
-sfl.log(f"final semi-supervised evaluation accuracy with 1% data is {val_acc:.2f}")
-metrics_test["test_semi/1"] = val_acc
+metrics_test["test_linear/client/average"] = np.mean(client_accuracies)
+
+
+# eval_loader = create_train_dataset(128, args.num_workers, False, 1, 0.1, 1.0, False)
+# val_acc = sfl.semisupervise_eval(eval_loader, 100)
+# sfl.log(f"final semi-supervised evaluation accuracy with 10% data is {val_acc:.2f}")
+# metrics_test["test_semi/10"] = val_acc
+#
+# eval_loader = create_train_dataset(128, args.num_workers, False, 1, 0.01, 1.0, False)
+# val_acc = sfl.semisupervise_eval(eval_loader, 100)
+# sfl.log(f"final semi-supervised evaluation accuracy with 1% data is {val_acc:.2f}")
+# metrics_test["test_semi/1"] = val_acc
+
+sfl.log_metrics(metrics_test)
 
 if args.attack:
     '''Evaluate Privacy'''

@@ -1,3 +1,5 @@
+from typing import Optional, Dict, Set, Tuple, List
+
 import numpy as np
 import torch.nn.functional as F
 import torch
@@ -5,7 +7,7 @@ import torchvision
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from torch.utils.data import TensorDataset, DataLoader
-from utils import GaussianBlur, get_multiclient_trainloader_list
+from utils import GaussianBlur, get_multiclient_trainloader_list, Subset
 from PIL import Image
 import os
 
@@ -68,15 +70,18 @@ def get_cifar10(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data
         return train_loader, test_loader
 
 def get_cifar100(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_proportion = 1.0, noniid_ratio =1.0, augmentation_option = False, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"):
+
     if pairloader_option != "None":
-        train_loader = get_cifar100_pairloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, pairloader_option, hetero, hetero_string, path_to_data)
+        train_loader, client_to_labels = get_cifar100_pairloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, pairloader_option, hetero, hetero_string, path_to_data)
         mem_loader = get_cifar100_trainloader(128, num_workers, False, path_to_data = path_to_data)
-        test_loader = get_cifar100_testloader(128, num_workers, False, path_to_data)
-        return train_loader, mem_loader, test_loader
+        test_loader, per_client_test_loaders = get_cifar100_testloaders(128, num_workers, False, path_to_data, client_to_labels=client_to_labels)
+
+        return train_loader, mem_loader, test_loader, per_client_test_loaders, client_to_labels
     else:
-        train_loader = get_cifar100_trainloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, augmentation_option, hetero, hetero_string, path_to_data)
-        test_loader = get_cifar100_testloader(128, num_workers, False, path_to_data)
-        return train_loader, test_loader
+        train_loader, client_to_labels = get_cifar100_trainloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, augmentation_option, hetero, hetero_string, path_to_data)
+        test_loader, per_client_test_loaders = get_cifar100_testloaders(128, num_workers, False, path_to_data, client_to_labels=client_to_labels)
+
+        return train_loader, test_loader, per_client_test_loaders, client_to_labels
 
 def get_tinyimagenet(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_proportion = 1.0, noniid_ratio =1.0, augmentation_option = False, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./tiny-imagenet-200"):
     if pairloader_option != "None":
@@ -199,7 +204,9 @@ def get_tinyimagenet_pairloader(batch_size=16, num_workers=2, shuffle=True, num_
     return cifar100_training_loader
 
 
-def get_cifar100_pairloader(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"):
+def get_cifar100_pairloader(
+        batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"
+) -> Tuple[List[torch.utils.data.DataLoader], Dict[int, Set[int]]]:
     class CIFAR100Pair(torchvision.datasets.CIFAR100):
         """CIFAR100 Dataset.
         """
@@ -211,7 +218,9 @@ def get_cifar100_pairloader(batch_size=16, num_workers=2, shuffle=True, num_clie
                 im_1 = self.transform(img)
                 im_2 = self.transform(img)
 
-            return im_1, im_2
+            label = self.targets[index]
+            return (im_1, im_2), label
+
     if pairloader_option == "mocov1":
         train_transform = transforms.Compose([
             transforms.RandomResizedCrop(32),
@@ -239,10 +248,9 @@ def get_cifar100_pairloader(batch_size=16, num_workers=2, shuffle=True, num_clie
     indices = torch.randperm(len(train_data))[:int(len(train_data)* data_portion)]
 
     train_data = torch.utils.data.Subset(train_data, indices)
+
+    return get_multiclient_trainloader_list(train_data, num_client, shuffle, num_workers, batch_size, noniid_ratio, 100, hetero, hetero_string)
     
-    cifar100_training_loader = get_multiclient_trainloader_list(train_data, num_client, shuffle, num_workers, batch_size, noniid_ratio, 100, hetero, hetero_string)
-    
-    return cifar100_training_loader
 
 def get_cifar10_pairloader(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"):
     class CIFAR10Pair(torchvision.datasets.CIFAR10):
@@ -788,7 +796,9 @@ def get_cifar100_trainloader(batch_size=16, num_workers=2, shuffle=True, num_cli
 
     return cifar100_training_loader
 
-def get_cifar100_testloader(batch_size=16, num_workers=2, shuffle=False, path_to_data = "./data"):
+def get_cifar100_testloaders(
+        batch_size=16, num_workers=2, shuffle=False, path_to_data = "./data", client_to_labels: Optional[Dict[int, Set[int]]] = None
+):
     """ return training dataloader
     Args:
         mean: mean of cifar100 test dataset
@@ -809,7 +819,21 @@ def get_cifar100_testloader(batch_size=16, num_workers=2, shuffle=False, path_to
     cifar100_test_loader = DataLoader(
         cifar100_test, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size)
 
-    return cifar100_test_loader
+
+
+    targets = np.array(cifar100_test.targets)
+
+    per_client_test_loaders = {
+        c_id:  DataLoader(
+            Subset(cifar100_test, [i for (i,t) in enumerate(targets) if t in c_labels]),
+            shuffle=shuffle, num_workers=num_workers, batch_size=batch_size, drop_last=False
+        )
+        for (c_id, c_labels)
+        in client_to_labels.items()
+    } if client_to_labels is not None else None
+
+
+    return cifar100_test_loader, per_client_test_loaders
 
 def get_SVHN_trainloader(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, augmentation_option = False, hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"):
     """ return training dataloader

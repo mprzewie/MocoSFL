@@ -29,7 +29,9 @@ class flmoco_simulator(base_simulator):
         # Create instances
         self.c_instance_list = []
         for i in range(args.num_client):
-            self.c_instance_list.append(create_flmococlient_instance(self.model.local_list[i], criterion, int(args.batch_size * args.client_sample_ratio * self.num_client), args))
+            self.c_instance_list.append(
+                create_flmococlient_instance(self.model.local_list[i], criterion, int(args.batch_size * args.client_sample_ratio * self.num_client), args)
+            )
         
         # Set optimizer
         self.c_optimizer_list = [None for i in range(args.num_client)]

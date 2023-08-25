@@ -8,6 +8,7 @@ To understand how the training works in this implementation of SFL. We provide a
 Refer to He et al. Momentum Contrast for Unsupervised Visual Representation Learning for technical details.
 
 '''
+from typing import Optional
 
 import torch
 import copy
@@ -22,8 +23,14 @@ import numpy as np
 
 
 class sflmoco_simulator(base_simulator):
-    def __init__(self, model, criterion, train_loader, test_loader, args) -> None:
-        super().__init__(model, criterion, train_loader, test_loader, args)
+    def __init__(self, model, criterion, train_loader, test_loader, per_client_test_loader, args) -> None:
+        super().__init__(model, criterion, train_loader, test_loader, per_client_test_loader=per_client_test_loader, args=args)
+
+        print(f"Clients x {self.num_client}")
+        print(model.local_list[0])
+
+        print("Server")
+        print(model.cloud)
         
         # Create server instances
         if self.model.cloud is not None:
@@ -58,10 +65,16 @@ class sflmoco_simulator(base_simulator):
         self.data_size = args.data_size
         self.arch = args.arch
 
-    def linear_eval(self, memloader, num_epochs = 100, lr = 3.0): # Use linear evaluation
+    def linear_eval(self, memloader, num_epochs = 100, lr = 3.0, client_id: Optional[int] = None): # Use linear evaluation
         """
         Run Linear evaluation
         """
+        assert (
+            (memloader is None or client_id is None)
+            and
+            ((memloader is not None) or (client_id is not None))
+        ), f"Exactly one of memloader / client_id must be None. {client_id=}"
+
         self.cuda()
         self.eval()  #set to eval mode
         criterion = nn.CrossEntropyLoss()
@@ -100,8 +113,16 @@ class sflmoco_simulator(base_simulator):
         best_avg_accu = 0.0
         avg_pool = nn.AdaptiveAvgPool2d((1,1))
         # Train the linear layer
+
+        train_loader = memloader[0] if memloader is not None else self.client_dataloader[client_id]
+        test_loader = self.validate_loader if memloader is not None else self.per_client_test_loaders[client_id]
+
         for epoch in range(num_epochs):
-            for input, label in memloader[0]:
+            for input, label in train_loader:
+
+                if client_id is not None:
+                    input = input[0] # we take only one image from the pair
+
                 linear_optimizer.zero_grad()
                 input = input.cuda()
                 label = label.cuda()
@@ -124,7 +145,7 @@ class sflmoco_simulator(base_simulator):
             
             linear_classifier.eval()
 
-            for input, target in self.validate_loader:
+            for input, target in test_loader:
                 input = input.cuda()
                 target = target.cuda()
                 with torch.no_grad():
@@ -140,11 +161,18 @@ class sflmoco_simulator(base_simulator):
             if avg_accu > best_avg_accu:
                 best_avg_accu = avg_accu
 
-            print(f"Epoch: {epoch}, linear eval accuracy - current: {avg_accu:.2f}, best: {best_avg_accu:.2f}")
+            self.log_metrics({
+                "val_linear/iteration": epoch,
+                f"val_linear/{client_id}/avg": avg_accu,
+                f"val_linear/{client_id}/best": best_avg_accu,
+            })
+            # print(f"{client_id=} Epoch: {epoch}, linear eval accuracy - current: {avg_accu:.2f}, best: {best_avg_accu:.2f}")
         
         self.model.merge_classifier_cloud()
         self.train()  #set back to train mode
         return best_avg_accu
+
+
 
 
     def semisupervise_eval(self, memloader, num_epochs = 100, lr = 3.0): # Use semi-supervised learning as evaluation

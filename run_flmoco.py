@@ -26,10 +26,19 @@ set_deterministic(args.seed)
 '''Preparing'''
 #get data
 create_dataset = getattr(datasets, f"get_{args.dataset}")
-train_loader, mem_loader, test_loader = create_dataset(batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True, 
-                                                        num_client = args.num_client, data_proportion = args.data_proportion, 
-                                                        noniid_ratio = args.noniid_ratio, augmentation_option = True, 
-                                                        pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string)
+(
+    train_loader,
+    mem_loader,
+    test_loader,
+    per_client_test_loaders,
+    client_to_labels
+)   = create_dataset(
+    batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True,
+    num_client = args.num_client, data_proportion = args.data_proportion,
+    noniid_ratio = args.noniid_ratio, augmentation_option = True,
+    pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string
+)
+
 num_batch = len(train_loader[0]) * args.local_epoch
 
 if "ResNet" in args.arch or "resnet" in args.arch:
@@ -104,6 +113,14 @@ if not args.resume:
 
                 if VERBOSE and (batch% 50 == 0 or batch == num_batch - 1):
                     fl.log(f"epoch {epoch} batch {batch}, loss {loss}")
+                    fl.log_metrics(
+                        {
+                            "epoch": epoch,
+                            "contrastive/loss/batch": loss,
+                            "contrastive/accuracy/batch": accu,
+                        }
+                    )
+
                 avg_loss += loss
                 avg_accu += accu
             gc.collect()
@@ -111,7 +128,15 @@ if not args.resume:
                 # sync client-side models
                 divergence_list = fl.fedavg(pool, divergence_aware = args.divergence_aware, divergence_measure = args.divergence_measure)
                 if divergence_list is not None:
-                    fl.log(f"divergence mean: {np.mean(divergence_list)}, std: {np.std(divergence_list)} and detailed_list: {divergence_list}")
+                    # fl.log(f"divergence mean: {np.mean(divergence_list)}, std: {np.std(divergence_list)} and detailed_list: {divergence_list}")
+                    fl.log_metrics({
+                        "fl/divergence/mean": np.mean(divergence_list),
+                        "fl/divergence/std": np.mean(divergence_list),
+                        **{
+                            f"fl/divergence/{i}": d
+                            for (i,d) in enumerate(divergence_list)
+                        }
+                    })
                     pass #TODO: implement divergence measure
                     # if i in pool: # if current client is selected.
                     #     weight_divergence = 0.0
@@ -130,25 +155,43 @@ if not args.resume:
         if knn_val_acc > knn_accu_max:
             knn_accu_max = knn_val_acc
             fl.save_model(epoch, is_best = True)
-        fl.log(f"epoch:{epoch}, knn_val_accu: {knn_val_acc:.2f}, contrast_loss: {avg_loss:.2f}, contrast_acc: {avg_accu:.2f}")
+
+        metrics_to_log = {
+                "epoch": epoch,
+                "knn/accuracy/val": knn_val_acc,
+                "contrastive/accuracy/epoch": avg_accu,
+                "contrastive/loss/epoch": avg_loss,
+            }
+        fl.log_metrics(metrics_to_log)
+
+        # fl.log(f"epoch:{epoch}, knn_val_accu: {knn_val_acc:.2f}, contrast_loss: {avg_loss:.2f}, contrast_acc: {avg_accu:.2f}")
         gc.collect()
+
+
+metrics_test = dict()
+
 '''Testing'''
 fl.load_model() # load model that has the lowest contrastive loss.
-
- # finally, do a thorough evaluation.
+# finally, do a thorough evaluation.
 val_acc = fl.knn_eval(memloader=mem_loader)
 fl.log(f"final knn evaluation accuracy is {val_acc:.2f}")
+metrics_test["knn/accuracy/test"] = val_acc
 
 create_train_dataset = getattr(datasets, f"get_{args.dataset}_trainloader")
 
 mem_loader = create_train_dataset(128, args.num_workers, False, 1, 1.0, 1.0, False)
 val_acc = fl.linear_eval(mem_loader, 100)
 fl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
+metrics_test["test_linear"] = val_acc
 
 mem_loader = create_train_dataset(128, args.num_workers, False, 1, 0.1, 1.0, False)
 val_acc = fl.semisupervise_eval(mem_loader, 100)
 fl.log(f"final semi-supervised evaluation accuracy with 10% data is {val_acc:.2f}")
+metrics_test["test_semi/10"] = val_acc
 
 mem_loader = create_train_dataset(128, args.num_workers, False, 1, 0.01, 1.0, False)
 val_acc = fl.semisupervise_eval(mem_loader, 100)
 fl.log(f"final semi-supervised evaluation accuracy with 1% data is {val_acc:.2f}")
+metrics_test["test_semi/1"] = val_acc
+
+fl.log_metrics(metrics_test)
