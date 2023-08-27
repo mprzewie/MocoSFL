@@ -145,10 +145,10 @@ if not args.resume:
                     if args.cutlayer > 1:
                         query = query.cuda()
                         pkey = pkey.cuda()
-                    hidden_query = sfl.c_instance_list[client_id](query)# pass to online 
+                    hidden_query = sfl.c_instance_list[client_id](query)# pass to online
                     hidden_query_list[i] = hidden_query
                     with torch.no_grad():
-                        hidden_pkey = sfl.c_instance_list[client_id].t_model(pkey).detach() # pass to target 
+                        hidden_pkey = sfl.c_instance_list[client_id].t_model(pkey).detach() # pass to target
                     hidden_pkey_list[i] = hidden_pkey
 
                 stack_hidden_query = torch.cat(hidden_query_list, dim = 0)
@@ -158,10 +158,10 @@ if not args.resume:
                     torch.save(stack_hidden_query, f"replay_tensors/stack_hidden_query_{batch}.pt")
                     torch.save(stack_hidden_pkey, f"replay_tensors/stack_hidden_pkey_{batch}.pt")
             else:
-                
+
                 stack_hidden_query = torch.load(f"replay_tensors/stack_hidden_query_{shuffle_map[batch]}.pt")
                 stack_hidden_pkey = torch.load(f"replay_tensors/stack_hidden_pkey_{shuffle_map[batch]}.pt")
-            
+
             stack_hidden_query = stack_hidden_query.cuda()
             stack_hidden_pkey = stack_hidden_pkey.cuda()
 
@@ -207,7 +207,7 @@ if not args.resume:
                         else:
                             gradient_dict[j] = gradient[start_grad_idx: start_grad_idx + args.batch_size]
                             start_grad_idx += args.batch_size
-                
+
                 if args.enable_ressfl:
                     for i, client_id in enumerate(pool): # if distributed, this can be parallelly done.
                         # let's use the query to train the AE
@@ -251,7 +251,8 @@ if not args.resume:
             avg_gan_eval_loss = avg_gan_eval_loss / num_batch / len(pool)
         
         loss_status.record_loss(epoch, avg_loss)
-        
+
+        # assert False, [type(m) for m in mem_loader]
         knn_val_acc = sfl.knn_eval(memloader=mem_loader)
         if args.cutlayer <= 1:
             sfl.c_instance_list[0].cpu()
@@ -285,20 +286,20 @@ metrics_test = dict()
 '''Testing'''
 sfl.load_model() # load model that has the lowest contrastive loss.
 # finally, do a thorough evaluation.
-val_acc = sfl.knn_eval(memloader=mem_loader)
-sfl.log(f"final knn evaluation accuracy is {val_acc:.2f}")
-metrics_test["knn/accuracy/test"] = val_acc
+# val_acc = sfl.knn_eval(memloader=mem_loader)
+# sfl.log(f"final knn evaluation accuracy is {val_acc:.2f}")
+# metrics_test["knn/accuracy/test"] = val_acc
 
 create_train_dataset = getattr(datasets, f"get_{args.dataset}_trainloader")
 
-eval_loader = create_train_dataset(128, args.num_workers, False, 1, 1.0, 1.0, False)
-val_acc = sfl.linear_eval(eval_loader, 100)
-sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
-metrics_test["test_linear/global"] = val_acc
+# eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 1.0, 1.0, False)
+# val_acc = sfl.linear_eval_v2(eval_loader, 100)
+# sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
+# metrics_test["test_linear/global"] = val_acc
 
 client_accuracies = []
 for client_id in sfl.per_client_test_loaders.keys():
-    client_acc = sfl.linear_eval(memloader=None, num_epochs=100, client_id=client_id)
+    client_acc = sfl.linear_eval_v2(memloader=None, num_epochs=100, client_id=client_id)
     metrics_test[f"test_linear/client/{client_id}"] = client_acc
     client_accuracies.append(client_acc)
 

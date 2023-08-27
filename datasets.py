@@ -73,7 +73,7 @@ def get_cifar100(batch_size=16, num_workers=2, shuffle=True, num_client = 1, dat
 
     if pairloader_option != "None":
         train_loader, client_to_labels = get_cifar100_pairloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, pairloader_option, hetero, hetero_string, path_to_data)
-        mem_loader = get_cifar100_trainloader(128, num_workers, False, path_to_data = path_to_data)
+        mem_loader, _ = get_cifar100_trainloader(128, num_workers, False, path_to_data = path_to_data)
         test_loader, per_client_test_loaders = get_cifar100_testloaders(128, num_workers, False, path_to_data, client_to_labels=client_to_labels)
 
         return train_loader, mem_loader, test_loader, per_client_test_loaders, client_to_labels
@@ -792,9 +792,9 @@ def get_cifar100_trainloader(batch_size=16, num_workers=2, shuffle=True, num_cli
 
     cifar100_training = torch.utils.data.Subset(cifar100_training, indices)
 
-    cifar100_training_loader = get_multiclient_trainloader_list(cifar100_training, num_client, shuffle, num_workers, batch_size, noniid_ratio, 100, hetero, hetero_string)
+    cifar100_training_loader, client_to_labels = get_multiclient_trainloader_list(cifar100_training, num_client, shuffle, num_workers, batch_size, noniid_ratio, 100, hetero, hetero_string)
 
-    return cifar100_training_loader
+    return cifar100_training_loader, client_to_labels
 
 def get_cifar100_testloaders(
         batch_size=16, num_workers=2, shuffle=False, path_to_data = "./data", client_to_labels: Optional[Dict[int, Set[int]]] = None

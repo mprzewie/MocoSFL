@@ -14,6 +14,8 @@ import torch
 import copy
 import math
 import torch.nn as nn
+from tqdm import tqdm
+
 from functions.base_funtions import base_simulator, create_base_instance
 import torchvision.transforms as transforms
 import torch.nn.functional as F
@@ -66,9 +68,11 @@ class sflmoco_simulator(base_simulator):
         self.arch = args.arch
 
     def linear_eval(self, memloader, num_epochs = 100, lr = 3.0, client_id: Optional[int] = None): # Use linear evaluation
+
         """
         Run Linear evaluation
         """
+        assert False, "Use linear_eval_v2 instead!"
         assert (
             (memloader is None or client_id is None)
             and
@@ -117,6 +121,8 @@ class sflmoco_simulator(base_simulator):
         train_loader = memloader[0] if memloader is not None else self.client_dataloader[client_id]
         test_loader = self.validate_loader if memloader is not None else self.per_client_test_loaders[client_id]
 
+        local_model_id = client_id if client_id is not None else 0
+
         for epoch in range(num_epochs):
             for input, label in train_loader:
 
@@ -127,7 +133,7 @@ class sflmoco_simulator(base_simulator):
                 input = input.cuda()
                 label = label.cuda()
                 with torch.no_grad():
-                    output = self.model.local_list[0](input)
+                    output = self.model.local_list[local_model_id](input)
                     output = self.model.cloud(output)
                     output = avg_pool(output)
                     output = output.view(output.size(0), -1)
@@ -149,7 +155,7 @@ class sflmoco_simulator(base_simulator):
                 input = input.cuda()
                 target = target.cuda()
                 with torch.no_grad():
-                    output = self.model.local_list[0](input)
+                    output = self.model.local_list[local_model_id](input)
                     output = self.model.cloud(output)
                     output = avg_pool(output)
                     output = output.view(output.size(0), -1)
@@ -172,7 +178,130 @@ class sflmoco_simulator(base_simulator):
         self.train()  #set back to train mode
         return best_avg_accu
 
+    def linear_eval_v2(self, memloader, num_epochs=100, lr=3.0, client_id: Optional[int] = None, num_ws_to_check=15):  # Use linear evaluation
+        """
+        Run Linear evaluation
+        """
+        assert (
+                (memloader is None or client_id is None)
+                and
+                ((memloader is not None) or (client_id is not None))
+        ), f"Exactly one of memloader / client_id must be None. {client_id=}"
 
+        self.cuda()
+        self.eval()  # set to eval mode
+        criterion = nn.CrossEntropyLoss()
+
+        self.model.unmerge_classifier_cloud()
+
+        # if self.data_size == 32:
+        #     data_size_factor = 1
+        # elif self.data_size == 64:
+        #     data_size_factor = 4
+        # elif self.data_size == 96:
+        #     data_size_factor = 9
+        # classifier_list = [nn.Linear(self.K_dim * self.model.expansion, self.num_class)]
+
+        if "ResNet" in self.arch or "resnet" in self.arch:
+            if "resnet" in self.arch:
+                self.arch = "ResNet" + self.arch.split("resnet")[-1]
+            output_dim = 512
+        elif "vgg" in self.arch:
+            output_dim = 512
+        elif "MobileNetV2" in self.arch:
+            output_dim = 1280
+
+        classifier_list = [nn.Linear(output_dim * self.model.expansion, self.num_class)]
+        linear_classifier = nn.Sequential(*classifier_list)
+
+
+        avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        local_model_id = client_id if client_id is not None else 0
+
+
+        train_loader = memloader[0] if memloader is not None else self.client_dataloader[client_id]
+        test_loader = self.validate_loader if memloader is not None else self.per_client_test_loaders[client_id]
+        with torch.no_grad():
+            train_features = []
+            train_labels = []
+            for input, label in tqdm(train_loader, f"[{client_id}] Collecting train features"):
+                if client_id is not None:
+                    input = input[0]  # we take only one image from the pair
+                output = self.model.local_list[0](input.cuda())
+                output = self.model.cloud(output)
+                output = avg_pool(output)
+                output = output.view(output.size(0), -1)
+                train_features.append(output.detach())
+                train_labels.append(label)
+
+            train_features = torch.cat(train_features).cuda()
+            train_labels = torch.cat(train_labels).cuda()
+
+            test_features = []
+            test_labels = []
+
+            for input, label in tqdm(test_loader, f"[{client_id}] Collecting test features"):
+
+                output = self.model.local_list[0](input.cuda())
+                output = self.model.cloud(output)
+                output = avg_pool(output)
+                output = output.view(output.size(0), -1)
+                test_features.append(output.detach())
+                test_labels.append(label)
+
+            test_features = torch.cat(test_features).cuda()
+            test_labels = torch.cat(test_labels).cuda()
+
+        best_acc = 0.
+        best_w = 0.
+        best_classifier = None
+
+        optim_kwargs = {
+            'line_search_fn': 'strong_wolfe',
+            'max_iter': 5000,
+            'lr': 1.,
+            'tolerance_grad': 1e-10,
+            'tolerance_change': 0,
+        }
+
+        def build_step(X, Y, classifier, optimizer, w, criterion_fn):
+            def step():
+                optimizer.zero_grad()
+                loss = criterion_fn(classifier(X), Y, reduction='sum')
+                for p in classifier.parameters():
+                    loss = loss + p.pow(2).sum().mul(w)
+                loss.backward()
+                return loss
+
+            return step
+
+        best_accuracy = 0
+        for w in torch.logspace(-6, 5, steps=num_ws_to_check).tolist():
+            linear_classifier.apply(init_weights)
+
+            linear_classifier.cuda()
+            linear_classifier.train()
+            optimizer = torch.optim.LBFGS(linear_classifier.parameters(), **optim_kwargs)
+
+            optimizer.step(
+                build_step(train_features, train_labels, linear_classifier, optimizer, w, criterion_fn=torch.nn.functional.cross_entropy))
+
+            with torch.no_grad():
+                y_test_pred = linear_classifier(test_features)
+                prec1 = accuracy(y_test_pred, test_labels)[0]
+                self.log_metrics(
+                    {
+                        f"val_linear_v2/{client_id}/w": w,
+                        f"val_linear_v2/{client_id}/acc": prec1
+                    },
+                    verbose=(prec1 > best_accuracy)
+                )
+                if prec1 > best_accuracy:
+                    best_accuracy = prec1.item()
+
+        self.model.merge_classifier_cloud()
+        self.train()  # set back to train mode
+        return best_accuracy
 
 
     def semisupervise_eval(self, memloader, num_epochs = 100, lr = 3.0): # Use semi-supervised learning as evaluation
@@ -434,6 +563,8 @@ class create_sflmocoserver_instance(create_base_instance):
             l_neg = torch.cat(l_neg_list, dim = 0)
 
         logits = torch.cat([l_pos, l_neg], dim=1)
+
+        assert False, logits.shape
 
         logits /= self.T
         
