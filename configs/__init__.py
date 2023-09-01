@@ -115,8 +115,10 @@ def get_sfl_args():
                 args.batch_size = args.batch_size // args.num_client
             else:
                 args.batch_size = 1
+            print(f"{args.K=}")
             print(f"Auto adjusted batch-size from {prev_bs} to {args.batch_size}")
         else:
+            print(f"{args.batch_size=}")
             print(f"Auto adjusted queue size from {args.K} to {args.K * args.num_client}")
             args.K = args.K * args.num_client
 
