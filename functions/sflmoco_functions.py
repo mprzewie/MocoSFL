@@ -564,8 +564,6 @@ class create_sflmocoserver_instance(create_base_instance):
 
         logits = torch.cat([l_pos, l_neg], dim=1)
 
-        assert False, logits.shape
-
         logits /= self.T
         
         labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()

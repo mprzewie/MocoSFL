@@ -107,12 +107,14 @@ def get_multiclient_trainloader_list(
     elif num_client > 1:
         if noniid_ratio < 1.0:
             training_subset_list, client_to_labels = noniid_alllabel(training_data, num_client, noniid_ratio, num_class, hetero, hetero_string) # TODO: implement non_iid_hetero version.
+            print({k: len(v) for (k,v ) in training_subset_list.items()})
         else:
             client_to_labels = {
                 c: set(list(range(num_class)))
                 for c in range(num_client)
             }
         training_loader_list = []
+
         
 
         if hetero:

@@ -29,7 +29,7 @@ def get_sfl_args():
     parser.add_argument('--num_epoch', type=int, default=200)
     parser.add_argument('--seed', type=int, default=1234)
     parser.add_argument('--num_workers', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--data_dir', type=str, default='./data/')
     parser.add_argument('--output_dir', type=str, default='./outputs/')
     parser.add_argument('--lr', type=float, default=0.05, help="server-side model learning rate")
@@ -94,12 +94,32 @@ def get_sfl_args():
         args.c_lr = args.lr
 
     '''Auto adjust fedavg frequency, batch size and client sampling ratio according to num_client'''
+    # if args.auto_adjust:
+    #     if args.num_client <= 50:
+    #         args.batch_size = 100 // args.num_client
+    #     else:
+    #         args.batch_size = 1
+    #
+    #     if args.num_client <= 1000:
+    #         args.avg_freq = 1000 // (args.batch_size * args.num_client) # num_step per epoch.
+    #
+    #     if args.num_client >= 200:
+    #         args.client_sample_ratio = 1 / (args.num_client // 100)
+    #     else:
+    #         args.client_sample_ratio = 1.0
+
     if args.auto_adjust:
-        if args.num_client <= 50:
-            args.batch_size = 100 // args.num_client
+        if not args.disable_feature_sharing:
+            prev_bs = args.batch_size
+            if args.num_client <= 50:
+                args.batch_size = args.batch_size // args.num_client
+            else:
+                args.batch_size = 1
+            print(f"Auto adjusted batch-size from {prev_bs} to {args.batch_size}")
         else:
-            args.batch_size = 1
-        
+            print(f"Auto adjusted queue size from {args.K} to {args.K * args.num_client}")
+            args.K = args.K * args.num_client
+
         if args.num_client <= 1000:
             args.avg_freq = 1000 // (args.batch_size * args.num_client) # num_step per epoch.
 

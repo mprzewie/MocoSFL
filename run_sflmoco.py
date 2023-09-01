@@ -240,8 +240,10 @@ if not args.resume:
                         **{
                             f"fl/divergence/{i}": d
                             for (i, d) in enumerate(divergence_list)
-                        }
-                    })
+                        },
+                    },
+                        verbose=False
+                    )
         sfl.s_scheduler.step()
 
         avg_accu = avg_accu / num_batch
@@ -286,17 +288,19 @@ metrics_test = dict()
 '''Testing'''
 sfl.load_model() # load model that has the lowest contrastive loss.
 # finally, do a thorough evaluation.
-# val_acc = sfl.knn_eval(memloader=mem_loader)
-# sfl.log(f"final knn evaluation accuracy is {val_acc:.2f}")
-# metrics_test["knn/accuracy/test"] = val_acc
+val_acc = sfl.knn_eval(memloader=mem_loader)
+sfl.log(f"final knn evaluation accuracy is {val_acc:.2f}")
+metrics_test["knn/accuracy/test"] = val_acc
 
 create_train_dataset = getattr(datasets, f"get_{args.dataset}_trainloader")
 
-# eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 1.0, 1.0, False)
-# val_acc = sfl.linear_eval_v2(eval_loader, 100)
-# sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
-# metrics_test["test_linear/global"] = val_acc
+eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 1.0, 1.0, False)
+val_acc = sfl.linear_eval_v2(eval_loader, 100)
+sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
+metrics_test["test_linear/global"] = val_acc
 
+# load model that has the lowest contrastive loss.
+sfl.load_model(load_local_clients=True)
 client_accuracies = []
 for client_id in sfl.per_client_test_loaders.keys():
     client_acc = sfl.linear_eval_v2(memloader=None, num_epochs=100, client_id=client_id)

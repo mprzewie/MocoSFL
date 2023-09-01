@@ -200,16 +200,22 @@ class base_simulator:
         ]}, self.output_dir + f'/checkpoint_locals_{epoch}.tar')
 
 
-    def load_model(self, is_best=True, epoch=200):
+    def load_model(self, is_best=True, epoch=200, load_local_clients: bool = False):
         if is_best:
             epoch = "best"
         checkpoint_s = torch.load(self.output_dir + '/checkpoint_s_{}.tar'.format(epoch))
         self.model.cloud.load_state_dict(checkpoint_s)
 
-        # warning - all clients load the centralized version of the model!
-        checkpoint_c = torch.load(self.output_dir + '/checkpoint_c_{}.tar'.format(epoch))
-        for i in range(self.num_client):
-            self.model.local_list[i].load_state_dict(checkpoint_c)
+        if not load_local_clients:
+            # warning - all clients load the centralized version of the model!
+            checkpoint_c = torch.load(self.output_dir + '/checkpoint_c_{}.tar'.format(epoch))
+            for i in range(self.num_client):
+                self.model.local_list[i].load_state_dict(checkpoint_c)
+        else:
+            local_checkpoints = torch.load(self.output_dir + f'/checkpoint_locals_{epoch}.tar')
+            for i in range(self.num_client):
+                self.model.local_list[i].load_state_dict(local_checkpoints["local_models"][i])
+
 
     def load_model_from_path(self, model_path, load_client = True, load_server = False):
         if load_server:
