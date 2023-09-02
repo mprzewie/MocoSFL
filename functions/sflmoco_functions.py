@@ -462,8 +462,11 @@ class create_sflmocoserver_instance(create_base_instance):
             self.queue = []
             self.queue_ptr = []
             for _ in range(self.num_client):
-                self.queue.append(torch.randn(args.K_dim, self.K).cuda())
+                queue = torch.randn(args.K_dim, self.K).cuda()
+                queue = nn.functional.normalize(queue, dim=0)
+                self.queue.append(queue)
                 self.queue_ptr.append(torch.zeros(1, dtype=torch.long))
+
     def __call__(self, input):
         return self.forward(input)
     
@@ -478,7 +481,6 @@ class create_sflmocoserver_instance(create_base_instance):
         if self.feature_sharing:
             batch_size = keys.shape[0]
             ptr = int(self.queue_ptr)
-            
             # replace the keys at ptr (dequeue and enqueue)
             if (ptr + batch_size) <= self.K:
                 self.queue[:, ptr:ptr + batch_size] = keys.T
@@ -490,6 +492,9 @@ class create_sflmocoserver_instance(create_base_instance):
             self.queue_ptr[0] = ptr
         else:
             batch_size = self.batch_size
+            if self.symmetric:
+                batch_size = batch_size * 2
+
             if pool is None:
                 pool = range(self.num_client)
             for client_id in pool:
