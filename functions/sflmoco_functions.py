@@ -178,7 +178,7 @@ class sflmoco_simulator(base_simulator):
         self.train()  #set back to train mode
         return best_avg_accu
 
-    def linear_eval_v2(self, memloader, num_epochs=100, lr=3.0, client_id: Optional[int] = None, num_ws_to_check=15):  # Use linear evaluation
+    def linear_eval_v2(self, memloader, num_epochs=100, lr=3.0, client_id: Optional[int] = None,  dataset_id: Optional[int] = None, num_ws_to_check=5,):  # Use linear evaluation
         """
         Run Linear evaluation
         """
@@ -187,6 +187,9 @@ class sflmoco_simulator(base_simulator):
                 and
                 ((memloader is not None) or (client_id is not None))
         ), f"Exactly one of memloader / client_id must be None. {client_id=}"
+
+        if client_id is not None:
+            assert dataset_id is not None
 
         self.cuda()
         self.eval()  # set to eval mode
@@ -219,15 +222,15 @@ class sflmoco_simulator(base_simulator):
         local_model_id = client_id if client_id is not None else 0
 
 
-        train_loader = memloader[0] if memloader is not None else self.client_dataloader[client_id]
-        test_loader = self.validate_loader if memloader is not None else self.per_client_test_loaders[client_id]
+        train_loader = memloader[0] if memloader is not None else self.client_dataloader[dataset_id]
+        test_loader = self.validate_loader if memloader is not None else self.per_client_test_loaders[dataset_id]
         with torch.no_grad():
             train_features = []
             train_labels = []
-            for input, label in tqdm(train_loader, f"[{client_id}] Collecting train features"):
+            for input, label in tqdm(train_loader, f"[{client_id}_{dataset_id}] Collecting train features"):
                 if client_id is not None:
                     input = input[0]  # we take only one image from the pair
-                output = self.model.local_list[0](input.cuda())
+                output = self.model.local_list[local_model_id](input.cuda())
                 output = self.model.cloud(output)
                 output = avg_pool(output)
                 output = output.view(output.size(0), -1)
@@ -240,9 +243,9 @@ class sflmoco_simulator(base_simulator):
             test_features = []
             test_labels = []
 
-            for input, label in tqdm(test_loader, f"[{client_id}] Collecting test features"):
+            for input, label in tqdm(test_loader, f"[{client_id}_{dataset_id}] Collecting test features"):
 
-                output = self.model.local_list[0](input.cuda())
+                output = self.model.local_list[local_model_id](input.cuda())
                 output = self.model.cloud(output)
                 output = avg_pool(output)
                 output = output.view(output.size(0), -1)
@@ -291,8 +294,8 @@ class sflmoco_simulator(base_simulator):
                 prec1 = accuracy(y_test_pred, test_labels)[0]
                 self.log_metrics(
                     {
-                        f"val_linear_v2/{client_id}/w": w,
-                        f"val_linear_v2/{client_id}/acc": prec1
+                        f"val_linear_v2/c{client_id}_d{dataset_id}/w": w,
+                        f"val_linear_v2/c{client_id}_d{dataset_id}/acc": prec1
                     },
                     verbose=(prec1 > best_accuracy)
                 )
