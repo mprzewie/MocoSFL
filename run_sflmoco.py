@@ -17,6 +17,9 @@ from functions.sfl_functions import client_backward, loss_based_status
 from functions.attack_functions import MIA_attacker, MIA_simulator
 import gc
 VERBOSE = False
+import seaborn as sns
+import matplotlib.pyplot as plt
+import wandb
 #get default args
 args = get_sfl_args()
 set_deterministic(args.seed)
@@ -37,6 +40,7 @@ create_dataset = getattr(datasets, f"get_{args.dataset}")
     noniid_ratio = args.noniid_ratio, augmentation_option = True,
     pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string
 )
+# assert False, client_to_labels
 num_batch = len(train_loader[0])
 
 if "ResNet" in args.arch or "resnet" in args.arch:
@@ -301,13 +305,26 @@ metrics_test["test_linear/global"] = val_acc
 
 # load model that has the lowest contrastive loss.
 sfl.load_model(load_local_clients=True)
-client_accuracies = []
-for client_id in sfl.per_client_test_loaders.keys():
-    client_acc = sfl.linear_eval_v2(memloader=None, num_epochs=100, client_id=client_id)
-    metrics_test[f"test_linear/client/{client_id}"] = client_acc
-    client_accuracies.append(client_acc)
+client_square_accuracies = []
+client_diagonal_accuracies = []
 
-metrics_test["test_linear/client/average"] = np.mean(client_accuracies)
+for client_id in sfl.per_client_test_loaders.keys():
+    dataset_acuracies = []
+    for dataset_id in sfl.per_client_test_loaders.keys():
+        client_acc = sfl.linear_eval_v2(memloader=None, num_epochs=100, client_id=client_id, dataset_id=dataset_id)
+        metrics_test[f"test_linear/client/{client_id}_{dataset_id}"] = client_acc
+        dataset_acuracies.append(client_acc)
+        if client_id == dataset_id:
+            client_diagonal_accuracies.append(client_acc)
+    client_square_accuracies.append(np.array(dataset_acuracies))
+
+heatmap = sns.heatmap(client_square_accuracies, annot=True, fmt='.2f', vmin=0, vmax=100)
+plt.xlabel("Dataset")
+plt.ylabel("Client")
+
+metrics_test["test_linear/client/diagonal"] = np.mean(client_diagonal_accuracies)
+metrics_test["test_linear/client/square"] = np.mean(client_square_accuracies)
+metrics_test["test_linear/grid/"] = wandb.Image(heatmap.get_figure(), caption="Accuracy per task heatmap")
 
 
 # eval_loader = create_train_dataset(128, args.num_workers, False, 1, 0.1, 1.0, False)
