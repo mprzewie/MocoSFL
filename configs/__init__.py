@@ -123,7 +123,7 @@ def get_sfl_args():
             args.K = args.K * args.num_client
 
         if args.num_client <= 1000:
-            args.avg_freq = 1000 // (args.batch_size * args.num_client) # num_step per epoch.
+            args.avg_freq = max(1, 1000 // (args.batch_size * args.num_client)) # num_step per epoch.
 
         if args.num_client >= 200:
             args.client_sample_ratio = 1 / (args.num_client // 100)

@@ -82,7 +82,7 @@ class base_simulator:
         
         global_weights = average_weights(self.model.local_list, pool)
         if divergence_measure:
-            divergence_list = []
+            divergence_metrics = {}
         for i in range(self.num_client):
             
             if divergence_measure:
@@ -95,7 +95,7 @@ class base_simulator:
                         if "running" in key or "num_batches" in key: # skipping batchnorm running stats
                             continue
                         weight_divergence += torch.linalg.norm(torch.flatten(self.model.local_list[i].state_dict()[key] - global_weights[key]).float(), dim = -1, ord = 2)
-                    divergence_list.append(weight_divergence.item())
+                    divergence_metrics[f"divergence/{i}"] = weight_divergence.item()
 
             if divergence_aware:
                 '''
@@ -118,7 +118,8 @@ class base_simulator:
                     
                     mu = self.div_lambda[i] * weight_divergence.item() # the choice of dic_lambda depends on num_param in client-side model
                     mu = 1 if mu >= 1 else mu # If divergence is too large, just do personalization & don't consider the average.
-
+                    divergence_metrics[f"mu/{i}"] = mu
+                    divergence_metrics[f"lambda/{i}"] = self.div_lambda[i]
                     for key in global_weights.keys():
                         self.model.local_list[i].state_dict()[key] = mu * self.model.local_list[i].state_dict()[key] + (1 - mu) * global_weights[key]
 
@@ -134,7 +135,7 @@ class base_simulator:
                 self.model.local_list[i].load_state_dict(global_weights)
 
         if divergence_measure:
-            return divergence_list
+            return divergence_metrics
         else:
             return None
     def train(self):

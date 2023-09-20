@@ -235,17 +235,17 @@ if not args.resume:
 
             if batch == num_batch - 1 or (batch % (num_batch//args.avg_freq) == (num_batch//args.avg_freq) - 1):
                 # sync client-side models
-                divergence_list = sfl.fedavg(pool, divergence_aware = args.divergence_aware, divergence_measure = args.divergence_measure)
-                if divergence_list is not None:
-                    # sfl.log(f"divergence mean: {np.mean(divergence_list)}, std: {np.std(divergence_list)} and detailed_list: {divergence_list}")
+                divergence_metrics = sfl.fedavg(pool, divergence_aware = args.divergence_aware, divergence_measure = args.divergence_measure)
+                if divergence_metrics is not None:
+                    groups = {k.split("/")[0] for k in divergence_metrics.keys()}
+                    for g in groups:
+                        g_metrics_values = [divergence_metrics[n] for n in divergence_metrics.keys() if n.startswith(g)]
+                        divergence_metrics[f"{g}/mean"] =np.mean(g_metrics_values)
+                        divergence_metrics[f"{g}/std"] =np.mean(g_metrics_values)
                     sfl.log_metrics({
-                        "fl/divergence/mean": np.mean(divergence_list),
-                        "fl/divergence/std": np.mean(divergence_list),
-                        **{
-                            f"fl/divergence/{i}": d
-                            for (i, d) in enumerate(divergence_list)
+                            f"fl/{k}": v
+                            for (k,v) in divergence_metrics.items()
                         },
-                    },
                         verbose=False
                     )
         sfl.s_scheduler.step()
