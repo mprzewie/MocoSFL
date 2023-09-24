@@ -120,11 +120,15 @@ class base_simulator:
                     mu = 1 if mu >= 1 else mu # If divergence is too large, just do personalization & don't consider the average.
                     divergence_metrics[f"mu/{i}"] = mu
                     divergence_metrics[f"lambda/{i}"] = self.div_lambda[i]
+                    new_state_dict = dict()
                     for key in global_weights.keys():
-                        self.model.local_list[i].state_dict()[key] = mu * self.model.local_list[i].state_dict()[key] + (1 - mu) * global_weights[key]
+                        new_state_dict[key] = mu * self.model.local_list[i].state_dict()[key] + (1 - mu) * global_weights[key]
+
+                    self.model.local_list[i].load_state_dict(new_state_dict, strict=False)
+
 
                     if self.auto_scaler: # is only done at epoch 1
-                        self.div_lambda[i] = mu / weight_divergence # such that next div_lambda will be similar to 1. will not be a crazy value.
+                        self.div_lambda[i] = (mu / weight_divergence).item() # such that next div_lambda will be similar to 1. will not be a crazy value.
                         self.auto_scaler = False # Will only use it once at the first round.
                 else: # if current client is not selected.
                     self.model.local_list[i].load_state_dict(global_weights)
@@ -133,6 +137,7 @@ class base_simulator:
                 Normal case: directly get the averaged result
                 '''
                 self.model.local_list[i].load_state_dict(global_weights)
+
 
         if divergence_measure:
             return divergence_metrics
