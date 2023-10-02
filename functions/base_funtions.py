@@ -129,7 +129,7 @@ class base_simulator:
 
                     if self.auto_scaler: # is only done at epoch 1
                         self.div_lambda[i] = (mu / weight_divergence).item() # such that next div_lambda will be similar to 1. will not be a crazy value.
-                        self.auto_scaler = False # Will only use it once at the first round.
+                        
                 else: # if current client is not selected.
                     self.model.local_list[i].load_state_dict(global_weights)
             else:
@@ -138,7 +138,8 @@ class base_simulator:
                 '''
                 self.model.local_list[i].load_state_dict(global_weights)
 
-
+        if self.auto_scaler: # is only done at epoch 1
+            self.auto_scaler = False # Will only use it once at the first round.
         if divergence_measure:
             return divergence_metrics
         else:
