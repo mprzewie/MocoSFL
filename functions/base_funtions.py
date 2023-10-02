@@ -137,7 +137,9 @@ class base_simulator:
                         layer_id = int(key.split(".")[0])
                         divergences[layer_id] += torch.linalg.norm(torch.flatten(self.model.local_list[client_id].state_dict()[key] - global_weights[key]).float(), dim = -1, ord = 2)
 
-                    for (layer_id,v) in divergences.items():
+
+                    new_state_dict = dict()
+                    for (layer_id, v) in divergences.items():
                         mu = self.div_lambda[client_id][layer_id] * v.item() # the choice of dic_lambda depends on num_param in client-side model
                         mu = 1 if mu >= 1 else mu # If divergence is too large, just do personalization & don't consider the average.
                         divergence_metrics[f"mu@{layer_id}/{client_id}"] = mu
@@ -145,10 +147,14 @@ class base_simulator:
 
                         for key in global_weights.keys():
                             if key.startswith(f"{layer_id}."):
-                                self.model.local_list[client_id].state_dict()[key] = mu * self.model.local_list[client_id].state_dict()[key] + (1 - mu) * global_weights[key]
+                                new_state_dict[key] = mu * self.model.local_list[client_id].state_dict()[key] + (1 - mu) * global_weights[key]
+                                # self.model.local_list[client_id].state_dict()[key] = mu * self.model.local_list[client_id].state_dict()[key] + (1 - mu) * global_weights[key]
 
                         if self.auto_scaler: # is only done at epoch 1
                             self.div_lambda[client_id][layer_id] = mu / v.item() # such that next div_lambda will be similar to 1. will not be a crazy value.
+
+                    self.model.local_list[client_id].load_state_dict(new_state_dict, strict=False)
+
                 else: # if current client is not selected.
                     self.model.local_list[client_id].load_state_dict(global_weights)
             else:
