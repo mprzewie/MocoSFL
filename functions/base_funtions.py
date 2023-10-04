@@ -43,7 +43,7 @@ class base_simulator:
         layer_keys = {k.split(".")[0] for k in self.model.local_list[0].state_dict().keys()}
         print(f"Layer keys: {layer_keys}")
         layerwise_lambdas = [
-            layerwise_lambda(args.div_lambda, i, args.div_layerwise)
+            layerwise_lambda(args.div_lambda, i+1, args.div_layerwise)
             for i in range(len(layer_keys))
         ]
         print(f"Layer lambdas: {layerwise_lambdas}")

@@ -74,7 +74,7 @@ def get_sfl_args():
         "--div_layerwise", choices=["constant", "fraction"], default=False,
         help="""
             if true, lambda for N-th layer will be expressed as f(div_lambda, N):
-                constant: f(d, N) = d
+                constant: f(d, N) = d (like before the refactor)
                 fraction: f(d, N) = d / N
             """
     )
