@@ -2,6 +2,7 @@
 cd "$(dirname "$0")"
 cd ../../
 
+
 #fixed arguments
 num_epoch=200
 lr=0.06
@@ -17,7 +18,7 @@ loss_threshold=0.0
 ressfl_alpha=0.0
 bottleneck_option=None
 
-python prepare_imagenet12.py
+#python prepare_imagenet12.py
 
 for dataset in $dataset_list; do
         for seed in $seed_list; do

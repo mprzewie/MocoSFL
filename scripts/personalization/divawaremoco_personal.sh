@@ -8,7 +8,7 @@
 set -e
 
 eval "$(conda shell.bash hook)"
-conda activate uj
+conda activate fdenv
 
 set -x
 
@@ -17,7 +17,7 @@ set -x
 
 
 
-export WANDB_API_KEY=...
+export WANDB_API_KEY='f61fe6de67dc18515ebe11ca944faaa2ccdd11e1'
 export WANDB__SERVICE_WAIT=300
 export WANDB_PROJECT=federated_ssl
 export WANDB_ENTITY=gmum
