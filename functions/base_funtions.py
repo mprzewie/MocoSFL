@@ -9,6 +9,7 @@ Refer to Thapa et al. https://arxiv.org/abs/2004.12088 for technical details.
 
 '''
 import os
+from collections import defaultdict
 from email.policy import strict
 from pathlib import Path
 
@@ -17,10 +18,14 @@ import logging
 
 import wandb
 
+from models.resnet import ResNet
 from utils import AverageMeter, accuracy, average_weights, maybe_setup_wandb
 from utils import setup_logger
+from copy import deepcopy
+from collections import defaultdict
+
 class base_simulator:
-    def __init__(self, model, criterion, train_loader, test_loader, per_client_test_loader, args) -> None:
+    def __init__(self, model: ResNet, criterion, train_loader, test_loader, per_client_test_loader, args) -> None:
         if not model.cloud_classifier_merge:
             model.merge_classifier_cloud()
         model_log_file = args.output_dir + '/output.log'
@@ -34,7 +39,16 @@ class base_simulator:
         self.num_class = args.num_class
         self.batch_size = args.batch_size
         self.output_dir = args.output_dir
-        self.div_lambda = [args.div_lambda for _ in range(args.num_client)]
+
+        layer_keys = {k.split(".")[0] for k in self.model.local_list[0].state_dict().keys()}
+        print(f"Layer keys: {layer_keys}")
+        layerwise_lambdas = [
+            layerwise_lambda(args.div_lambda, i+1, args.div_layerwise)
+            for i in range(len(layer_keys))
+        ]
+        print(f"Layer lambdas: {layerwise_lambdas}")
+        self.div_lambda = [deepcopy(layerwise_lambdas) for _ in range(args.num_client)]
+
         self.auto_scaler = True
         self.client_sample_ratio  = args.client_sample_ratio
 
@@ -75,27 +89,32 @@ class base_simulator:
         if self.s_optimizer is not None:
             self.s_optimizer.zero_grad()
         if self.c_optimizer_list: 
-            for i in range(self.num_client):
-                self.c_optimizer_list[i].zero_grad()
+            for client_id in range(self.num_client):
+                self.c_optimizer_list[client_id].zero_grad()
 
     def fedavg(self, pool = None, divergence_aware = False, divergence_measure = False):
         
         global_weights = average_weights(self.model.local_list, pool)
         if divergence_measure:
             divergence_metrics = {}
-        for i in range(self.num_client):
+        for client_id in range(self.num_client):
             
             if divergence_measure:
                 if pool is None:
                     pool = range(len(self.num_client))
                 
-                if i in pool: # if current client is selected.
-                    weight_divergence = 0.0
+                if client_id in pool: # if current client is selected.
+                    divergences = defaultdict(float)
+
                     for key in global_weights.keys():
                         if "running" in key or "num_batches" in key: # skipping batchnorm running stats
                             continue
-                        weight_divergence += torch.linalg.norm(torch.flatten(self.model.local_list[i].state_dict()[key] - global_weights[key]).float(), dim = -1, ord = 2)
-                    divergence_metrics[f"divergence/{i}"] = weight_divergence.item()
+                        layer_id = int(key.split(".")[0])
+                        divergences[layer_id] += torch.linalg.norm(torch.flatten(self.model.local_list[client_id].state_dict()[key] - global_weights[key]).float(), dim = -1, ord = 2)
+
+                    for layer_id, v in divergences.items():
+                        divergence_metrics[f"divergence@{layer_id}/{client_id}"] = divergences[layer_id].item()
+
 
             if divergence_aware:
                 '''
@@ -108,35 +127,42 @@ class base_simulator:
                 '''
                 if pool is None:
                     pool = range(len(self.num_client))
-                
-                if i in pool: # if current client is selected.
-                    weight_divergence = 0.0
+
+                if client_id in pool: # if current client is selected.
+                    divergences = defaultdict(float)
+                    mus = defaultdict(float)
+
                     for key in global_weights.keys():
                         if "running" in key or "num_batches" in key: # skipping batchnorm running stats
                             continue
-                        weight_divergence += torch.linalg.norm(torch.flatten(self.model.local_list[i].state_dict()[key] - global_weights[key]).float(), dim = -1, ord = 2)
-                    
-                    mu = self.div_lambda[i] * weight_divergence.item() # the choice of dic_lambda depends on num_param in client-side model
-                    mu = 1 if mu >= 1 else mu # If divergence is too large, just do personalization & don't consider the average.
-                    divergence_metrics[f"mu/{i}"] = mu
-                    divergence_metrics[f"lambda/{i}"] = self.div_lambda[i]
+                        layer_id = int(key.split(".")[0])
+                        divergences[layer_id] += torch.linalg.norm(torch.flatten(self.model.local_list[client_id].state_dict()[key] - global_weights[key]).float(), dim = -1, ord = 2)
+
+
                     new_state_dict = dict()
-                    for key in global_weights.keys():
-                        new_state_dict[key] = mu * self.model.local_list[i].state_dict()[key] + (1 - mu) * global_weights[key]
+                    for (layer_id, v) in divergences.items():
+                        mu = self.div_lambda[client_id][layer_id] * v.item() # the choice of dic_lambda depends on num_param in client-side model
+                        mu = 1 if mu >= 1 else mu # If divergence is too large, just do personalization & don't consider the average.
+                        divergence_metrics[f"mu@{layer_id}/{client_id}"] = mu
+                        divergence_metrics[f"lambda@{layer_id}/{client_id}"] = self.div_lambda[client_id][layer_id]
 
-                    self.model.local_list[i].load_state_dict(new_state_dict, strict=False)
+                        for key in global_weights.keys():
+                            if key.startswith(f"{layer_id}."):
+                                new_state_dict[key] = mu * self.model.local_list[client_id].state_dict()[key] + (1 - mu) * global_weights[key]
+                                # self.model.local_list[client_id].state_dict()[key] = mu * self.model.local_list[client_id].state_dict()[key] + (1 - mu) * global_weights[key]
 
+                        if self.auto_scaler: # is only done at epoch 1
+                            self.div_lambda[client_id][layer_id] = mu / v.item() # such that next div_lambda will be similar to 1. will not be a crazy value.
 
-                    if self.auto_scaler: # is only done at epoch 1
-                        self.div_lambda[i] = (mu / weight_divergence).item() # such that next div_lambda will be similar to 1. will not be a crazy value.
-                        
+                    self.model.local_list[client_id].load_state_dict(new_state_dict, strict=False)
+
                 else: # if current client is not selected.
-                    self.model.local_list[i].load_state_dict(global_weights)
+                    self.model.local_list[client_id].load_state_dict(global_weights)
             else:
                 '''
                 Normal case: directly get the averaged result
                 '''
-                self.model.local_list[i].load_state_dict(global_weights)
+                self.model.local_list[client_id].load_state_dict(global_weights)
 
         if self.auto_scaler: # is only done at epoch 1
             self.auto_scaler = False # Will only use it once at the first round.
@@ -278,4 +304,12 @@ class create_base_instance:
     
     def cpu(self):
         self.model.cpu()
+
+def layerwise_lambda(div_lambda: float, N: int, calc_method: str) -> float:
+    if calc_method == "constant":
+        return div_lambda
+    elif calc_method == "fraction":
+        return div_lambda / N
+
+    raise NotImplementedError(calc_method)
 

@@ -239,7 +239,7 @@ if not args.resume:
                 if divergence_metrics is not None:
                     groups = {k.split("/")[0] for k in divergence_metrics.keys()}
                     for g in groups:
-                        g_metrics_values = [divergence_metrics[n] for n in divergence_metrics.keys() if n.startswith(g)]
+                        g_metrics_values = [divergence_metrics[n] for n in divergence_metrics.keys() if n.startswith(f"{g}/")]
                         divergence_metrics[f"{g}/mean"] =np.mean(g_metrics_values)
                         divergence_metrics[f"{g}/std"] =np.mean(g_metrics_values)
                     sfl.log_metrics({

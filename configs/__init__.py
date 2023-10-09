@@ -70,7 +70,15 @@ def get_sfl_args():
     # Split Learning Non-IID specific Setting (Advanced)
     parser.add_argument('--divergence_aware', action='store_true', default=False, help="set consistency_loss to False")
     parser.add_argument('--div_lambda', type=float, default=1.0, help="divergence_aware_strength, if enable divergence_aware, increase strength means more personalization")
-  
+    parser.add_argument(
+        "--div_layerwise", choices=["constant", "fraction"], default=False,
+        help="""
+            if true, lambda for N-th layer will be expressed as f(div_lambda, N):
+                constant: f(d, N) = d (like before the refactor)
+                fraction: f(d, N) = d / N
+            """
+    )
+
     # Moco setting
     parser.add_argument('--moco_version', type=str, default="V2", help="moco_version: V1, smallV2, V2, largeV2")
     parser.add_argument('--pairloader_option', type=str, default="None", help="set a pairloader option (results in augmentation differences), only enable it in contrastive learning, choice: mocov1, mocov2")
