@@ -42,9 +42,11 @@ class base_simulator:
 
         layer_keys = {k.split(".")[0] for k in self.model.local_list[0].state_dict().keys()}
         print(f"Layer keys: {layer_keys}")
+        M = len(layer_keys)
+
         layerwise_lambdas = [
-            layerwise_lambda(args.div_lambda, i+1, args.div_layerwise)
-            for i in range(len(layer_keys))
+            layerwise_lambda(args.div_lambda, i+1, M, args.div_layerwise)
+            for i in range(M)
         ]
         print(f"Layer lambdas: {layerwise_lambdas}")
         self.div_lambda = [deepcopy(layerwise_lambdas) for _ in range(args.num_client)]
@@ -305,9 +307,11 @@ class create_base_instance:
     def cpu(self):
         self.model.cpu()
 
-def layerwise_lambda(div_lambda: float, N: int, calc_method: str) -> float:
+def layerwise_lambda(div_lambda: float, N: int,M: int, calc_method: str) -> float:
     if calc_method == "constant":
         return div_lambda
+    elif calc_method == "fraction_reversed":
+        return div_lambda * (N/M)
     elif calc_method == "fraction":
         return div_lambda / N
 

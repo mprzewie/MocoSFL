@@ -4,20 +4,23 @@
 #SBATCH --mem-per-cpu=4G
 #SBATCH --cpus-per-task=10
 #SBATCH --ntasks=1
+#SBATCH --partition=rtx3080
+#SBATCH --qos=quick
+
 
 set -e
 
-eval "$(conda shell.bash hook)"
-conda activate uj
+#eval "$(conda shell.bash hook)"
+#conda activate uj
+source /home/gmosial/miniconda3/bin/activate /home/gmosial/miniconda3/envs/mae_env
+
 
 set -x
 
 #cd "$(dirname "$0")"
 #cd ../../
 
-
-
-export WANDB_API_KEY=...
+export WANDB_API_KEY=....
 export WANDB__SERVICE_WAIT=300
 export WANDB_PROJECT=federated_ssl
 export WANDB_ENTITY=gmum
@@ -30,7 +33,7 @@ arch=ResNet18
 
 #non_iid_list="0.2 1.0"
 noniid_ratio="0.2" # 1.0"
-cutlayer_list="1" # 2"
+#cutlayer_list="1" # 2"
 #num_client="20"
 num_client=5
 K=4096
@@ -39,15 +42,16 @@ loss_threshold=0.0
 ressfl_alpha=0.0
 bottleneck_option=None
 
+
 prefix="mocosfl${moco_version}_${arch}_${dataset}_bnl${bottleneck_option}_client${num_client}_nonIID${noniid_ratio}_K${K}"
 constant_args="--num_client ${num_client} --lr ${lr} --num_epoch ${num_epoch} --noniid_ratio ${noniid_ratio}  --moco_version ${moco_version} \
   --arch ${arch} --dataset ${dataset} --loss_threshold ${loss_threshold} --ressfl_alpha ${ressfl_alpha} --bottleneck_option ${bottleneck_option}
   --auto_adjust --divergence_measure --K $K"
 
-#cutlayer=1
+#cutlayer=3
 
-DIV_LAMBDA=0.1
-for cutlayer in 9;
+DIV_LAMBDA=1
+for cutlayer in 6;
 do
 
 # output_dir="./outputs/${prefix}_cut${cutlayer}_baseline"
@@ -57,7 +61,7 @@ do
 # python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --disable_feature_sharing
 
 output_dir="./outputs/${prefix}_cut${cutlayer}_fix-div-aware_lambda${DIV_LAMBDA}"
-python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --div_lambda $DIV_LAMBDA --divergence_aware
+python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --div_lambda $DIV_LAMBDA --divergence_aware --div_layerwise fraction
 #
 #output_dir="./outputs/${prefix}_cut${cutlayer}_div-aware_no-ft-sharing"
 #python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --disable_feature_sharing --divergence_aware
