@@ -20,7 +20,7 @@ set -x
 #cd "$(dirname "$0")"
 #cd ../../
 
-export WANDB_API_KEY=....
+export WANDB_API_KEY=
 export WANDB__SERVICE_WAIT=300
 export WANDB_PROJECT=federated_ssl
 export WANDB_ENTITY=gmum
@@ -51,7 +51,7 @@ constant_args="--num_client ${num_client} --lr ${lr} --num_epoch ${num_epoch} --
 #cutlayer=3
 
 DIV_LAMBDA=1
-for cutlayer in 6;
+for cutlayer in 9;
 do
 
 # output_dir="./outputs/${prefix}_cut${cutlayer}_baseline"
@@ -61,8 +61,8 @@ do
 # python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --disable_feature_sharing
 
 output_dir="./outputs/${prefix}_cut${cutlayer}_fix-div-aware_lambda${DIV_LAMBDA}"
-python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --div_lambda $DIV_LAMBDA --divergence_aware --div_layerwise fraction
-#
+python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --div_lambda $DIV_LAMBDA --divergence_aware --div_layerwise fraction_reversed
+ 
 #output_dir="./outputs/${prefix}_cut${cutlayer}_div-aware_no-ft-sharing"
 #python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --disable_feature_sharing --divergence_aware
 

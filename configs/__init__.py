@@ -71,7 +71,7 @@ def get_sfl_args():
     parser.add_argument('--divergence_aware', action='store_true', default=False, help="set consistency_loss to False")
     parser.add_argument('--div_lambda', type=float, default=1.0, help="divergence_aware_strength, if enable divergence_aware, increase strength means more personalization")
     parser.add_argument(
-        "--div_layerwise", choices=["constant", "fraction"], default=False,
+        "--div_layerwise", choices=["constant", "fraction", "fraction_reversed"], default=False,
         help="""
             if true, lambda for N-th layer will be expressed as f(div_lambda, N):
                 constant: f(d, N) = d (like before the refactor)

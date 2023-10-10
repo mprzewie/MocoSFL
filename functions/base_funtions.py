@@ -97,6 +97,14 @@ class base_simulator:
     def fedavg(self, pool = None, divergence_aware = False, divergence_measure = False):
         
         global_weights = average_weights(self.model.local_list, pool)
+        max_distance = 0
+        most_divergent_model_index = -1
+        for idx, client_model in enumerate(self.model.local_list):
+            distance = sum(torch.linalg.norm(client_model.state_dict()[key] - global_weights[key]).item() for key in global_weights.keys())
+            if distance > max_distance:
+                max_distance = distance
+                most_divergent_model_weights = client_model.state_dict()
+
         if divergence_measure:
             divergence_metrics = {}
         for client_id in range(self.num_client):
@@ -108,11 +116,11 @@ class base_simulator:
                 if client_id in pool: # if current client is selected.
                     divergences = defaultdict(float)
 
-                    for key in global_weights.keys():
+                    for key in most_divergent_model_weights.keys():
                         if "running" in key or "num_batches" in key: # skipping batchnorm running stats
                             continue
                         layer_id = int(key.split(".")[0])
-                        divergences[layer_id] += torch.linalg.norm(torch.flatten(self.model.local_list[client_id].state_dict()[key] - global_weights[key]).float(), dim = -1, ord = 2)
+                        divergences[layer_id] += torch.linalg.norm(torch.flatten(self.model.local_list[client_id].state_dict()[key] - most_divergent_model_weights[key]).float(), dim = -1, ord = 2)
 
                     for layer_id, v in divergences.items():
                         divergence_metrics[f"divergence@{layer_id}/{client_id}"] = divergences[layer_id].item()
@@ -134,11 +142,11 @@ class base_simulator:
                     divergences = defaultdict(float)
                     mus = defaultdict(float)
 
-                    for key in global_weights.keys():
+                    for key in most_divergent_model_weights.keys():
                         if "running" in key or "num_batches" in key: # skipping batchnorm running stats
                             continue
                         layer_id = int(key.split(".")[0])
-                        divergences[layer_id] += torch.linalg.norm(torch.flatten(self.model.local_list[client_id].state_dict()[key] - global_weights[key]).float(), dim = -1, ord = 2)
+                        divergences[layer_id] += torch.linalg.norm(torch.flatten(self.model.local_list[client_id].state_dict()[key] - most_divergent_model_weights[key]).float(), dim = -1, ord = 2)
 
 
                     new_state_dict = dict()
@@ -148,13 +156,13 @@ class base_simulator:
                         divergence_metrics[f"mu@{layer_id}/{client_id}"] = mu
                         divergence_metrics[f"lambda@{layer_id}/{client_id}"] = self.div_lambda[client_id][layer_id]
 
-                        for key in global_weights.keys():
+                        for key in most_divergent_model_weights.keys():
                             if key.startswith(f"{layer_id}."):
-                                new_state_dict[key] = mu * self.model.local_list[client_id].state_dict()[key] + (1 - mu) * global_weights[key]
+                                new_state_dict[key] = mu * self.model.local_list[client_id].state_dict()[key] + (1 - mu) * most_divergent_model_weights[key]
                                 # self.model.local_list[client_id].state_dict()[key] = mu * self.model.local_list[client_id].state_dict()[key] + (1 - mu) * global_weights[key]
 
-                        if self.auto_scaler: # is only done at epoch 1
-                            self.div_lambda[client_id][layer_id] = mu / v.item() # such that next div_lambda will be similar to 1. will not be a crazy value.
+                        #if self.auto_scaler: # is only done at epoch 1
+                            #self.div_lambda[client_id][layer_id] = mu / v.item() # such that next div_lambda will be similar to 1. will not be a crazy value.
 
                     self.model.local_list[client_id].load_state_dict(new_state_dict, strict=False)
 
@@ -307,7 +315,7 @@ class create_base_instance:
     def cpu(self):
         self.model.cpu()
 
-def layerwise_lambda(div_lambda: float, N: int,M: int, calc_method: str) -> float:
+def layerwise_lambda(div_lambda: float, N: int, M: int, calc_method: str) -> float:
     if calc_method == "constant":
         return div_lambda
     elif calc_method == "fraction_reversed":
