@@ -36,7 +36,20 @@ class sflmoco_simulator(base_simulator):
         
         # Create server instances
         if self.model.cloud is not None:
-            self.s_instance = create_sflmocoserver_instance(self.model.cloud, criterion, args, self.model.get_smashed_data_size(1, args.data_size), feature_sharing=args.feature_sharing)
+            self.s_instance = create_sflmocoserver_instance(
+                model=self.model.cloud,
+                criterion=criterion,
+                args=args,
+                server_input_size=self.model.get_smashed_data_size(1, args.data_size),
+                feature_sharing=args.feature_sharing
+            ) if args.moco_version != "byol" else create_sflbyol_client_instance(
+                model=self.model.cloud,
+                predictor=self.model.predictor,
+                criterion=None,
+                args=args,
+                server_input_size=self.model.get_smashed_data_size(1, args.data_size),
+                feature_sharing=args.feature_sharing
+            )
             self.s_optimizer = torch.optim.SGD(list(self.s_instance.model.parameters()), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
             
             if args.cos:
@@ -654,3 +667,63 @@ class create_sflmococlient_instance(create_base_instance):
     def cpu(self):
         self.model.cpu()
         self.t_model.cpu()
+
+
+class create_sflbyol_client_instance(create_sflmocoserver_instance):
+    def __init__(self, model, predictor, criterion, args, server_input_size = 1, feature_sharing = True):
+        super().__init__(model, criterion, args, server_input_size=server_input_size, feature_sharing=feature_sharing)
+        self.predictor = predictor
+
+    def contrastive_loss(self, query, pkey, pool = None):
+        raise NotImplementedError("go BYOL yourself")
+
+    def compute(self, query, pkey, update_momentum = True, enqueue = True, tau = 0.99, pool = None):
+        query.requires_grad=True
+
+        query.retain_grad()
+
+        if update_momentum:
+            self.update_moving_average(tau)
+
+        if self.symmetric:
+            assert False, "probably not allowed"
+            # loss12, accu, q1, k2 = self.contrastive_loss(query, pkey, pool)
+            # loss21, accu, q2, k1 = self.contrastive_loss(pkey, query, pool)
+            # loss = loss12 + loss21
+            # pkey_out = torch.cat([k1, k2], dim = 0)
+        else:
+            query_out = self.model(query)
+            query_out_pred = self.predictor(query_out)
+
+            # query_out = nn.functional.normalize(query_out, dim=1)
+
+            with torch.no_grad():  # no gradient to keys
+                pkey_, idx_unshuffle = self._batch_shuffle_single_gpu(pkey)
+                pkey_out = self.t_model(pkey_)
+                pkey_out = self._batch_unshuffle_single_gpu(pkey_out, idx_unshuffle)
+
+            loss = F.cosine_similarity(query_out_pred, pkey_out.detach(), dim=-1).mean().mul(-1)
+
+        if enqueue:
+            self._dequeue_and_enqueue(pkey_out, pool)
+
+        error = loss.detach().cpu().numpy()
+
+        if query.grad is not None:
+            query.grad.zero_()
+
+        # loss.backward(retain_graph = True)
+        loss.backward()
+
+        gradient = query.grad.detach().clone() # get gradient, the -1 is important, since updates are added to the weights in cpp.
+
+        return error, gradient, 0
+    def cuda(self):
+        self.model.cuda()
+        self.t_model.cuda()
+        self.predictor.cuda()
+
+    def cpu(self):
+        self.model.cpu()
+        self.t_model.cpu()
+        self.predictor.cuda()
