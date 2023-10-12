@@ -80,7 +80,8 @@ def get_sfl_args():
     )
 
     # Moco setting
-    parser.add_argument('--moco_version', type=str, default="V2", help="moco_version: V1, smallV2, V2, largeV2")
+    parser.add_argument('--moco_version', type=str, default="V2", choices=["V1", "smallV2", "V2", "largeV2", "byol"], help="moco_version: V1, smallV2, V2, largeV2")
+
     parser.add_argument('--pairloader_option', type=str, default="None", help="set a pairloader option (results in augmentation differences), only enable it in contrastive learning, choice: mocov1, mocov2")
     parser.add_argument('--K', type=int, default=6000, help="max number of keys stored in queue")
     parser.add_argument('--symmetric', action='store_true', default=False, help="enable symmetric contrastive loss, can improve accuracy")

@@ -59,6 +59,7 @@ global_model = create_arch(cutting_layer=args.cutlayer, num_client = args.num_cl
                              adds_bottleneck=args.adds_bottleneck, bottleneck_option=args.bottleneck_option, c_residual = args.c_residual, WS = args.WS)
 
 
+predictor_list = []
 
 if args.mlp:
     if args.moco_version == "largeV2": # This one uses a larger classifier, same as in Zhuang et al. Divergence-aware paper
@@ -70,10 +71,30 @@ if args.mlp:
         classifier_list = [nn.Linear(output_dim * global_model.expansion, args.K_dim * global_model.expansion),
                         nn.ReLU(True),
                         nn.Linear(args.K_dim * global_model.expansion, args.K_dim)]
+
+    elif args.moco_version == "byol":
+        classifier_list = [
+            nn.Linear(output_dim * global_model.expansion, 4096),
+            nn.BatchNorm1d(4096),
+            nn.ReLU(True),
+            nn.Linear(4096, args.K_dim) # should be 256 in case of BYOL
+        ]
+
+        predictor_list = [
+            nn.Linear(args.K_dim, 4096),
+            nn.BatchNorm1d(4096),
+            nn.ReLU(True),
+            nn.Linear(4096, args.K_dim)
+        ]
+
     else:
         raise("Unknown version! Please specify the classifier.")
     global_model.classifier = nn.Sequential(*classifier_list)
     global_model.classifier.apply(init_weights)
+    global_model.predictor = nn.Sequential(*predictor_list)
+    global_model.predictor.apply(init_weights)
+
+
 global_model.merge_classifier_cloud()
 
 #get loss function
