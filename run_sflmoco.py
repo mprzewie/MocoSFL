@@ -73,18 +73,19 @@ if args.mlp:
                         nn.Linear(args.K_dim * global_model.expansion, args.K_dim)]
 
     elif args.moco_version == "byol":
+        projector_h_size = 512
         classifier_list = [
-            nn.Linear(output_dim * global_model.expansion, 4096),
-            nn.BatchNorm1d(4096),
+            nn.Linear(output_dim * global_model.expansion, projector_h_size),
+            nn.BatchNorm1d(projector_h_size),
             nn.ReLU(True),
-            nn.Linear(4096, args.K_dim) # should be 256 in case of BYOL
+            nn.Linear(projector_h_size, args.K_dim) # should be 256 in case of BYOL
         ]
 
         predictor_list = [
-            nn.Linear(args.K_dim, 4096),
-            nn.BatchNorm1d(4096),
+            nn.Linear(args.K_dim, projector_h_size),
+            nn.BatchNorm1d(projector_h_size),
             nn.ReLU(True),
-            nn.Linear(4096, args.K_dim)
+            nn.Linear(projector_h_size, args.K_dim)
         ]
 
     else:

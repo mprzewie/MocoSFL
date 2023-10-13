@@ -204,7 +204,7 @@ def get_sfl_args():
     elif args.moco_version == "byol":
         args.mlp = True # use extra MLP head
         # args.cos = True # set cos annearling learning rate decay to true
-        args.K_dim = 256
+        args.K_dim = 128
         args.pairloader_option = "mocov2"
         args.symmetric = False
         args.CLR_option = "highmomen"

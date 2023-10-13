@@ -33,6 +33,9 @@ class sflmoco_simulator(base_simulator):
 
         print("Server")
         print(model.cloud)
+
+        print("Predictor")
+        print(model.predictor)
         
         # Create server instances
         if self.model.cloud is not None:
@@ -42,7 +45,7 @@ class sflmoco_simulator(base_simulator):
                 args=args,
                 server_input_size=self.model.get_smashed_data_size(1, args.data_size),
                 feature_sharing=args.feature_sharing
-            ) if args.moco_version != "byol" else create_sflbyol_client_instance(
+            ) if args.moco_version != "byol" else create_sflbyol_server_instance(
                 model=self.model.cloud,
                 predictor=self.model.predictor,
                 criterion=None,
@@ -669,10 +672,11 @@ class create_sflmococlient_instance(create_base_instance):
         self.t_model.cpu()
 
 
-class create_sflbyol_client_instance(create_sflmocoserver_instance):
+class create_sflbyol_server_instance(create_sflmocoserver_instance):
     def __init__(self, model, predictor, criterion, args, server_input_size = 1, feature_sharing = True):
         super().__init__(model, criterion, args, server_input_size=server_input_size, feature_sharing=feature_sharing)
         self.predictor = predictor
+
 
     def contrastive_loss(self, query, pkey, pool = None):
         raise NotImplementedError("go BYOL yourself")
@@ -702,10 +706,8 @@ class create_sflbyol_client_instance(create_sflmocoserver_instance):
                 pkey_out = self.t_model(pkey_)
                 pkey_out = self._batch_unshuffle_single_gpu(pkey_out, idx_unshuffle)
 
-            loss = F.cosine_similarity(query_out_pred, pkey_out.detach(), dim=-1).mean().mul(-1)
+            loss = -2 * F.cosine_similarity(query_out_pred, pkey_out.detach(), dim=-1).mean()
 
-        if enqueue:
-            self._dequeue_and_enqueue(pkey_out, pool)
 
         error = loss.detach().cpu().numpy()
 
