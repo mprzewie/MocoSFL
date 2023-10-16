@@ -614,10 +614,12 @@ class create_sflmocoserver_instance(create_base_instance):
             self.update_moving_average(tau)
 
         if self.symmetric:
-            loss12, accu, q1, k2 = self.contrastive_loss(query, pkey, pool)
-            loss21, accu, q2, k1 = self.contrastive_loss(pkey, query, pool)
-            loss = loss12 + loss21
-            pkey_out = torch.cat([k1, k2], dim = 0)
+            loss, accu, query_out, pkey_out = self.contrastive_loss(query, pkey, pool)
+
+            # loss12, accu, q1, k2 = self.contrastive_loss(query, pkey, pool)
+            # loss21, accu, q2, k1 = self.contrastive_loss(pkey, query, pool)
+            # loss = loss12 + loss21
+            # pkey_out = torch.cat([k1, k2], dim = 0)
         else:
             loss, accu, query_out, pkey_out = self.contrastive_loss(query, pkey, pool)
 

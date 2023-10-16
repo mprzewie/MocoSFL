@@ -171,6 +171,15 @@ if not args.resume:
                     if args.cutlayer > 1:
                         query = query.cuda()
                         pkey = pkey.cuda()
+
+                    # print(query.shape, pkey.shape)
+                    if sfl.s_instance.symmetric:
+                        query2 = torch.cat([query, pkey])
+                        pkey2 = torch.cat([pkey, query])
+                        query = query2
+                        pkey = pkey2
+
+                    # assert False, (query.shape, pkey.shape)
                     hidden_query = sfl.c_instance_list[client_id](query)# pass to online
                     hidden_query_list[i] = hidden_query
                     with torch.no_grad():
@@ -222,9 +231,11 @@ if not args.resume:
                 gradient_dict = {key: [] for key in range(len(pool))}
 
                 if not args.hetero:
+                    step_size = args.batch_size if not sfl.s_instance.symmetric else 2*args.batch_size
                     for j in range(len(pool)):
-                        gradient_dict[j] = gradient[j*args.batch_size:(j+1)*args.batch_size, :]
+                        gradient_dict[j] = gradient[j*step_size:(j+1)*step_size, :]
                 else:
+                    raise NotImplementedError("there may be problems with grad /batch size due to symmetric")
                     start_grad_idx = 0
                     for j in range(len(pool)):
                         if (pool[j]) < rich_clients: # if client is rich. Implement hetero backward.
@@ -235,6 +246,7 @@ if not args.resume:
                             start_grad_idx += args.batch_size
 
                 if args.enable_ressfl:
+
                     for i, client_id in enumerate(pool): # if distributed, this can be parallelly done.
                         # let's use the query to train the AE
                         gan_train_loss = ressfl.train(client_id, hidden_query, query)

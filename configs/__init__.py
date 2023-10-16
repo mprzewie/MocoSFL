@@ -179,7 +179,7 @@ def get_sfl_args():
         args.cos = True # set cos annearling learning rate decay to true
         args.K_dim = 1024
         args.pairloader_option = "mocov2"
-        args.symmetric = False #True
+        args.symmetric = True #False #True
         args.CLR_option = "cos"
     elif args.moco_version == "largeV2": #we adopt the baseline's setting (https://arxiv.org/pdf/2204.04385.pdf)
         args.mlp = True # use extra MLP head
