@@ -73,7 +73,7 @@ if args.mlp:
                         nn.Linear(args.K_dim * global_model.expansion, args.K_dim)]
 
     elif args.moco_version == "byol":
-        projector_h_size = 512
+        projector_h_size = 4096
         classifier_list = [
             nn.Linear(output_dim * global_model.expansion, projector_h_size),
             nn.BatchNorm1d(projector_h_size),

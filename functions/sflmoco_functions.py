@@ -39,21 +39,28 @@ class sflmoco_simulator(base_simulator):
         
         # Create server instances
         if self.model.cloud is not None:
-            self.s_instance = create_sflmocoserver_instance(
-                model=self.model.cloud,
-                criterion=criterion,
-                args=args,
-                server_input_size=self.model.get_smashed_data_size(1, args.data_size),
-                feature_sharing=args.feature_sharing
-            ) if args.moco_version != "byol" else create_sflbyol_server_instance(
-                model=self.model.cloud,
-                predictor=self.model.predictor,
-                criterion=None,
-                args=args,
-                server_input_size=self.model.get_smashed_data_size(1, args.data_size),
-                feature_sharing=args.feature_sharing
-            )
-            self.s_optimizer = torch.optim.SGD(list(self.s_instance.model.parameters()), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+
+            if args.moco_version != "byol":
+                self.s_instance = create_sflmocoserver_instance(
+                    model=self.model.cloud,
+                    criterion=criterion,
+                    args=args,
+                    server_input_size=self.model.get_smashed_data_size(1, args.data_size),
+                    feature_sharing=args.feature_sharing
+                )
+                params_to_optimize = list(self.s_instance.model.parameters())
+            else:
+                self.s_instance = create_sflbyol_server_instance(
+                    model=self.model.cloud,
+                    predictor=self.model.predictor,
+                    criterion=None,
+                    args=args,
+                    server_input_size=self.model.get_smashed_data_size(1, args.data_size),
+                    feature_sharing=args.feature_sharing
+                )
+                params_to_optimize = list(self.s_instance.model.parameters()) + list(self.s_instance.predictor.parameters())
+
+            self.s_optimizer = torch.optim.SGD(params_to_optimize, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
             
             if args.cos:
                 self.s_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.s_optimizer, self.num_epoch)  # learning rate decay 
@@ -705,7 +712,8 @@ class create_sflbyol_server_instance(create_sflmocoserver_instance):
                 pkey_, idx_unshuffle = self._batch_shuffle_single_gpu(pkey)
                 pkey_out = self.t_model(pkey_)
                 pkey_out = self._batch_unshuffle_single_gpu(pkey_out, idx_unshuffle)
-
+            
+            
             loss = -2 * F.cosine_similarity(query_out_pred, pkey_out.detach(), dim=-1).mean()
 
 
@@ -728,4 +736,4 @@ class create_sflbyol_server_instance(create_sflmocoserver_instance):
     def cpu(self):
         self.model.cpu()
         self.t_model.cpu()
-        self.predictor.cuda()
+        self.predictor.cpu()
