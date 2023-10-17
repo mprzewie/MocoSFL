@@ -581,13 +581,14 @@ class create_sflmocoserver_instance(create_base_instance):
         if self.feature_sharing:
             l_neg = torch.einsum('nc,ck->nk', [query_out, self.queue.clone().detach()])
         else:
+            step_size = self.batch_size if not self.symmetric else self.batch_size * 2
             if pool is None:
                 pool = range(self.num_client)
             l_neg_list = []
             for client_id in pool:
                 l_neg_list.append(torch.einsum(
                     'nc,ck->nk', [
-                        query_out[client_id*self.batch_size:(client_id + 1)*self.batch_size],
+                        query_out[client_id*step_size:(client_id + 1)*step_size],
                         self.queue[client_id].clone().detach()
                     ]
                 ))
