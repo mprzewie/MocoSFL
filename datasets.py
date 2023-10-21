@@ -72,16 +72,16 @@ def get_cifar10(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data
 def get_cifar100(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_proportion = 1.0, noniid_ratio =1.0, augmentation_option = False, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"):
 
     if pairloader_option != "None":
-        train_loader, client_to_labels = get_cifar100_pairloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, pairloader_option, hetero, hetero_string, path_to_data)
+        per_client_train_loaders, client_to_labels = get_cifar100_pairloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, pairloader_option, hetero, hetero_string, path_to_data)
         mem_loader, _ = get_cifar100_trainloader(128, num_workers, False, path_to_data = path_to_data)
         test_loader, per_client_test_loaders = get_cifar100_testloaders(128, num_workers, False, path_to_data, client_to_labels=client_to_labels)
 
-        return train_loader, mem_loader, test_loader, per_client_test_loaders, client_to_labels
+        return per_client_train_loaders, mem_loader, test_loader, per_client_test_loaders, client_to_labels
     else:
-        train_loader, client_to_labels = get_cifar100_trainloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, augmentation_option, hetero, hetero_string, path_to_data)
+        per_client_train_loaders, client_to_labels = get_cifar100_trainloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, augmentation_option, hetero, hetero_string, path_to_data)
         test_loader, per_client_test_loaders = get_cifar100_testloaders(128, num_workers, False, path_to_data, client_to_labels=client_to_labels)
 
-        return train_loader, test_loader, per_client_test_loaders, client_to_labels
+        return per_client_train_loaders, test_loader, per_client_test_loaders, client_to_labels
 
 def get_tinyimagenet(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_proportion = 1.0, noniid_ratio =1.0, augmentation_option = False, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./tiny-imagenet-200"):
     if pairloader_option != "None":

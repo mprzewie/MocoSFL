@@ -29,7 +29,7 @@ set_deterministic(args.seed)
 create_dataset = getattr(datasets, f"get_{args.dataset}")
 
 (
-    train_loader,
+    per_client_train_loaders,
     mem_loader,
     test_loader,
     per_client_test_loaders,
@@ -41,7 +41,17 @@ create_dataset = getattr(datasets, f"get_{args.dataset}")
     pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string
 )
 # assert False, client_to_labels
-num_batch = len(train_loader[0])
+num_batch = len(per_client_train_loaders[0])
+
+
+args.client_info = {
+    i: {
+        "num_training_examples": sum([len(b1) for ((b1, b2), t) in ld])
+        "labels": client_to_labels[i]
+    }
+    for (i, ld) in enumerate(per_client_train_loaders)
+}
+
 
 if "ResNet" in args.arch or "resnet" in args.arch:
     if "resnet" in args.arch:
@@ -102,7 +112,7 @@ global_model.merge_classifier_cloud()
 criterion = nn.CrossEntropyLoss().cuda()
 
 #initialize sfl
-sfl = sflmoco_simulator(global_model, criterion, train_loader, test_loader, per_client_test_loader=per_client_test_loaders, args=args)
+sfl = sflmoco_simulator(global_model, criterion, per_client_train_loaders, test_loader, per_client_test_loader=per_client_test_loaders, args=args)
 
 '''Initialze with ResSFL resilient model ''' 
 if args.initialze_path != "None":
@@ -339,18 +349,24 @@ metrics_test["test_linear/global"] = val_acc
 
 # load model that has the lowest contrastive loss.
 sfl.load_model(load_local_clients=True)
-client_square_accuracies = []
-client_diagonal_accuracies = []
+
+n_clients = len(sfl.per_client_test_loaders.keys())
+client_square_accuracies = np.ones((n_clients, n_clients)) * -1
+
 
 for client_id in sfl.per_client_test_loaders.keys():
     dataset_acuracies = []
     for dataset_id in sfl.per_client_test_loaders.keys():
+        if args.eval_personalized != "square" and (client_id != dataset_id):
+            continue
+
         client_acc = sfl.linear_eval_v2(memloader=None, num_epochs=100, client_id=client_id, dataset_id=dataset_id)
         metrics_test[f"test_linear/client/{client_id}_{dataset_id}"] = client_acc
         dataset_acuracies.append(client_acc)
         if client_id == dataset_id:
             client_diagonal_accuracies.append(client_acc)
-    client_square_accuracies.append(np.array(dataset_acuracies))
+        client_square_accuracies[client_id, dataset_id] = client_id
+
 
 heatmap = sns.heatmap(client_square_accuracies, annot=True, fmt='.2f', vmin=0, vmax=100)
 plt.xlabel("Dataset")
@@ -379,5 +395,5 @@ if args.attack:
         sfl.load_model() # load model that has the lowest contrastive loss.
     val_acc = sfl.knn_eval(memloader=mem_loader)
     sfl.log(f"final knn evaluation accuracy is {val_acc:.2f}")
-    MIA = MIA_attacker(sfl.model, train_loader, args, "res_normN4C64")
+    MIA = MIA_attacker(sfl.model, per_client_train_loaders, args, "res_normN4C64")
     MIA.MIA_attack()

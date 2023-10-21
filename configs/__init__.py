@@ -79,7 +79,10 @@ def get_sfl_args():
                 fraction_reversed: f(d, N) = N / <n_cutlayers> (divergence increases with depth)
             """
     )
-
+    parser.add_argument(
+        "--eval-personalized", choices=["square", "diagonal"], default="square",
+        help="If square, I will evaluate all clients on all datasets. If diagonal, I will evaluate clients only on their respective datasets (so diagonal is a subset of square)."
+    )
     # Moco setting
     parser.add_argument('--moco_version', type=str, default="V2", choices=["V1", "smallV2", "V2", "largeV2", "byol"], help="moco_version: V1, smallV2, V2, largeV2")
 
