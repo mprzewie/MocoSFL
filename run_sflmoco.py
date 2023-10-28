@@ -46,7 +46,7 @@ num_batch = len(per_client_train_loaders[0])
 
 args.client_info = {
     i: {
-        "num_training_examples": sum([len(b1) for ((b1, b2), t) in ld])
+        "num_training_examples": sum([len(b1) for ((b1, b2), t) in ld]),
         "labels": client_to_labels[i]
     }
     for (i, ld) in enumerate(per_client_train_loaders)
