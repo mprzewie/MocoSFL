@@ -46,8 +46,8 @@ num_batch = len(per_client_train_loaders[0])
 
 args.client_info = {
     i: {
-        "num_training_examples": sum([len(b1) for ((b1, b2), t) in ld])
-        "labels": client_to_labels[i]
+        "num_training_examples": sum([len(b1) for ((b1, b2), t) in ld]),
+        "labels": sorted(list(client_to_labels[i]))
     }
     for (i, ld) in enumerate(per_client_train_loaders)
 }
@@ -352,7 +352,7 @@ sfl.load_model(load_local_clients=True)
 
 n_clients = len(sfl.per_client_test_loaders.keys())
 client_square_accuracies = np.ones((n_clients, n_clients)) * -1
-
+client_diagonal_accuracies = []
 
 for client_id in sfl.per_client_test_loaders.keys():
     dataset_acuracies = []
@@ -365,7 +365,7 @@ for client_id in sfl.per_client_test_loaders.keys():
         dataset_acuracies.append(client_acc)
         if client_id == dataset_id:
             client_diagonal_accuracies.append(client_acc)
-        client_square_accuracies[client_id, dataset_id] = client_id
+        client_square_accuracies[client_id, dataset_id] = client_acc
 
 
 heatmap = sns.heatmap(client_square_accuracies, annot=True, fmt='.2f', vmin=0, vmax=100)
