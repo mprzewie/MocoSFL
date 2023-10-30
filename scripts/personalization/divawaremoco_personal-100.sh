@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=FedSSL
-#SBATCH --gpus=1
+#SBATCH --job-name=FedSSL_20
+#SBATCH --gpus=ampere:1
 #SBATCH --mem-per-cpu=4G
 #SBATCH --cpus-per-task=10
 #SBATCH --ntasks=1
@@ -17,12 +17,11 @@ set -x
 
 
 
-export WANDB_API_KEY=...
+export WANDB_API_KEY=8922102d08435f66d8640bbfa9caefd9c4e6be6d
 export WANDB__SERVICE_WAIT=300
 export WANDB_PROJECT=federated_ssl
 export WANDB_ENTITY=gmum
 export WANDB_SH_FILEPATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/${BASH_SOURCE[0]}"
-
 
 #fixed arguments
 num_epoch=200
@@ -34,7 +33,7 @@ arch=ResNet18
 noniid_ratio="0.2" # 1.0"
 cutlayer_list="1" # 2"
 #num_client="20"
-num_client=5
+num_client=20
 K=4096
 dataset=cifar100
 loss_threshold=0.0
@@ -48,20 +47,23 @@ constant_args="--num_client ${num_client} --lr ${lr} --num_epoch ${num_epoch} --
 
 #cutlayer=1
 
-DIV_LAMBDA=0.1
+DIV_LAMBDA=1
+DIVAWARE_LAYERWISE=constant
+
 for cutlayer in 9;
 do
 
-# output_dir="./outputs/${prefix}_cut${cutlayer}_baseline"
+# output_dir="./outputs/${prefix}_cut${cutlayer}_baseline-fs-client-stats"
 # python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir}
-#
-# output_dir="./outputs/${prefix}_cut${cutlayer}_no-ft-sharing"
-# python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --disable_feature_sharing
 
-output_dir="./outputs/${prefix}_cut${cutlayer}_fix-div-aware_lambda${DIV_LAMBDA}"
-python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --div_lambda $DIV_LAMBDA --divergence_aware
-#
-#output_dir="./outputs/${prefix}_cut${cutlayer}_div-aware_no-ft-sharing"
-#python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --disable_feature_sharing --divergence_aware
+
+ output_dir="./outputs/${prefix}_cut${cutlayer}_no-ft-sharing-fs-client-stats"
+ python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --disable_feature_sharing
+
+# output_dir="./outputs/${prefix}_cut${cutlayer}_fix-div-aware_lw_${DIVAWARE_LAYERWISE}_lambda${DIV_LAMBDA}-fs-client-stats"
+# python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --div_lambda $DIV_LAMBDA --div_layerwise $DIVAWARE_LAYERWISE --divergence_aware
+
+#  output_dir="./outputs/${prefix}_cut${cutlayer}_div-aware_no-ft-sharing-fs-client-stats"
+#  python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --disable_feature_sharing --divergence_aware
 
 done

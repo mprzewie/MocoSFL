@@ -29,7 +29,7 @@ set_deterministic(args.seed)
 create_dataset = getattr(datasets, f"get_{args.dataset}")
 
 (
-    train_loader,
+    per_client_train_loaders,
     mem_loader,
     test_loader,
     per_client_test_loaders,
@@ -41,7 +41,17 @@ create_dataset = getattr(datasets, f"get_{args.dataset}")
     pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string
 )
 # assert False, client_to_labels
-num_batch = len(train_loader[0])
+num_batch = len(per_client_train_loaders[0])
+
+
+args.client_info = {
+    i: {
+        "num_training_examples": sum([len(b1) for ((b1, b2), t) in ld]),
+        "labels": sorted(list(client_to_labels[i]))
+    }
+    for (i, ld) in enumerate(per_client_train_loaders)
+}
+
 
 if "ResNet" in args.arch or "resnet" in args.arch:
     if "resnet" in args.arch:
@@ -59,6 +69,7 @@ global_model = create_arch(cutting_layer=args.cutlayer, num_client = args.num_cl
                              adds_bottleneck=args.adds_bottleneck, bottleneck_option=args.bottleneck_option, c_residual = args.c_residual, WS = args.WS)
 
 
+predictor_list = []
 
 if args.mlp:
     if args.moco_version == "largeV2": # This one uses a larger classifier, same as in Zhuang et al. Divergence-aware paper
@@ -70,17 +81,38 @@ if args.mlp:
         classifier_list = [nn.Linear(output_dim * global_model.expansion, args.K_dim * global_model.expansion),
                         nn.ReLU(True),
                         nn.Linear(args.K_dim * global_model.expansion, args.K_dim)]
+
+    elif args.moco_version == "byol":
+        projector_h_size = 4096
+        classifier_list = [
+            nn.Linear(output_dim * global_model.expansion, projector_h_size),
+            nn.BatchNorm1d(projector_h_size),
+            nn.ReLU(True),
+            nn.Linear(projector_h_size, args.K_dim) # should be 256 in case of BYOL
+        ]
+
+        predictor_list = [
+            nn.Linear(args.K_dim, projector_h_size),
+            nn.BatchNorm1d(projector_h_size),
+            nn.ReLU(True),
+            nn.Linear(projector_h_size, args.K_dim)
+        ]
+
     else:
         raise("Unknown version! Please specify the classifier.")
     global_model.classifier = nn.Sequential(*classifier_list)
     global_model.classifier.apply(init_weights)
+    global_model.predictor = nn.Sequential(*predictor_list)
+    global_model.predictor.apply(init_weights)
+
+
 global_model.merge_classifier_cloud()
 
 #get loss function
 criterion = nn.CrossEntropyLoss().cuda()
 
 #initialize sfl
-sfl = sflmoco_simulator(global_model, criterion, train_loader, test_loader, per_client_test_loader=per_client_test_loaders, args=args)
+sfl = sflmoco_simulator(global_model, criterion, per_client_train_loaders, test_loader, per_client_test_loader=per_client_test_loaders, args=args)
 
 '''Initialze with ResSFL resilient model ''' 
 if args.initialze_path != "None":
@@ -149,6 +181,15 @@ if not args.resume:
                     if args.cutlayer > 1:
                         query = query.cuda()
                         pkey = pkey.cuda()
+
+                    # print(query.shape, pkey.shape)
+                    if sfl.s_instance.symmetric:
+                        query2 = torch.cat([query, pkey])
+                        pkey2 = torch.cat([pkey, query])
+                        query = query2
+                        pkey = pkey2
+
+                    # assert False, (query.shape, pkey.shape)
                     hidden_query = sfl.c_instance_list[client_id](query)# pass to online
                     hidden_query_list[i] = hidden_query
                     with torch.no_grad():
@@ -200,9 +241,11 @@ if not args.resume:
                 gradient_dict = {key: [] for key in range(len(pool))}
 
                 if not args.hetero:
+                    step_size = args.batch_size if not sfl.s_instance.symmetric else 2*args.batch_size
                     for j in range(len(pool)):
-                        gradient_dict[j] = gradient[j*args.batch_size:(j+1)*args.batch_size, :]
+                        gradient_dict[j] = gradient[j*step_size:(j+1)*step_size, :]
                 else:
+                    raise NotImplementedError("there may be problems with grad /batch size due to symmetric")
                     start_grad_idx = 0
                     for j in range(len(pool)):
                         if (pool[j]) < rich_clients: # if client is rich. Implement hetero backward.
@@ -213,6 +256,7 @@ if not args.resume:
                             start_grad_idx += args.batch_size
 
                 if args.enable_ressfl:
+
                     for i, client_id in enumerate(pool): # if distributed, this can be parallelly done.
                         # let's use the query to train the AE
                         gan_train_loss = ressfl.train(client_id, hidden_query, query)
@@ -305,18 +349,24 @@ metrics_test["test_linear/global"] = val_acc
 
 # load model that has the lowest contrastive loss.
 sfl.load_model(load_local_clients=True)
-client_square_accuracies = []
+
+n_clients = len(sfl.per_client_test_loaders.keys())
+client_square_accuracies = np.ones((n_clients, n_clients)) * -1
 client_diagonal_accuracies = []
 
 for client_id in sfl.per_client_test_loaders.keys():
     dataset_acuracies = []
     for dataset_id in sfl.per_client_test_loaders.keys():
+        if args.eval_personalized != "square" and (client_id != dataset_id):
+            continue
+
         client_acc = sfl.linear_eval_v2(memloader=None, num_epochs=100, client_id=client_id, dataset_id=dataset_id)
         metrics_test[f"test_linear/client/{client_id}_{dataset_id}"] = client_acc
         dataset_acuracies.append(client_acc)
         if client_id == dataset_id:
             client_diagonal_accuracies.append(client_acc)
-    client_square_accuracies.append(np.array(dataset_acuracies))
+        client_square_accuracies[client_id, dataset_id] = client_acc
+
 
 heatmap = sns.heatmap(client_square_accuracies, annot=True, fmt='.2f', vmin=0, vmax=100)
 plt.xlabel("Dataset")
@@ -345,5 +395,5 @@ if args.attack:
         sfl.load_model() # load model that has the lowest contrastive loss.
     val_acc = sfl.knn_eval(memloader=mem_loader)
     sfl.log(f"final knn evaluation accuracy is {val_acc:.2f}")
-    MIA = MIA_attacker(sfl.model, train_loader, args, "res_normN4C64")
+    MIA = MIA_attacker(sfl.model, per_client_train_loaders, args, "res_normN4C64")
     MIA.MIA_attack()

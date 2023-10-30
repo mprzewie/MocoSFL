@@ -71,16 +71,21 @@ def get_sfl_args():
     parser.add_argument('--divergence_aware', action='store_true', default=False, help="set consistency_loss to False")
     parser.add_argument('--div_lambda', type=float, default=1.0, help="divergence_aware_strength, if enable divergence_aware, increase strength means more personalization")
     parser.add_argument(
-        "--div_layerwise", choices=["constant", "fraction"], default=False,
+        "--div_layerwise", choices=["constant", "fraction", "fraction_reversed"], default="constant",
         help="""
             if true, lambda for N-th layer will be expressed as f(div_lambda, N):
                 constant: f(d, N) = d (like before the refactor)
-                fraction: f(d, N) = d / N
+                fraction: f(d, N) = d / N (divergence decreases with depth)
+                fraction_reversed: f(d, N) = N / <n_cutlayers> (divergence increases with depth)
             """
     )
-
+    parser.add_argument(
+        "--eval-personalized", choices=["square", "diagonal"], default="square",
+        help="If square, I will evaluate all clients on all datasets. If diagonal, I will evaluate clients only on their respective datasets (so diagonal is a subset of square)."
+    )
     # Moco setting
-    parser.add_argument('--moco_version', type=str, default="V2", help="moco_version: V1, smallV2, V2, largeV2")
+    parser.add_argument('--moco_version', type=str, default="V2", choices=["V1", "smallV2", "V2", "largeV2", "byol"], help="moco_version: V1, smallV2, V2, largeV2")
+
     parser.add_argument('--pairloader_option', type=str, default="None", help="set a pairloader option (results in augmentation differences), only enable it in contrastive learning, choice: mocov1, mocov2")
     parser.add_argument('--K', type=int, default=6000, help="max number of keys stored in queue")
     parser.add_argument('--symmetric', action='store_true', default=False, help="enable symmetric contrastive loss, can improve accuracy")
@@ -177,7 +182,7 @@ def get_sfl_args():
         args.cos = True # set cos annearling learning rate decay to true
         args.K_dim = 1024
         args.pairloader_option = "mocov2"
-        args.symmetric = True
+        args.symmetric = True #False #True
         args.CLR_option = "cos"
     elif args.moco_version == "largeV2": #we adopt the baseline's setting (https://arxiv.org/pdf/2204.04385.pdf)
         args.mlp = True # use extra MLP head
@@ -200,7 +205,14 @@ def get_sfl_args():
         args.pairloader_option = "mocov2"
         args.symmetric = True
         args.CLR_option = "highmomen"
-    
+    elif args.moco_version == "byol":
+        args.mlp = True # use extra MLP head
+        args.cos = True # set cos annearling learning rate decay to true
+        args.K_dim = 1024 #128
+        args.pairloader_option = "mocov2"
+        args.symmetric = False
+        args.CLR_option = "cos"
+
     if args.client_sample_ratio != 1.0:
         args.num_epoch = args.num_epoch * int(1/args.client_sample_ratio)
 

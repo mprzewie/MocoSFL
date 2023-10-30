@@ -258,12 +258,15 @@ class ResNet(nn.Module):
 
         self.cloud = feature[1]
         self.classifier = nn.Linear(512*expansion, num_class)
+        self.predictor = nn.Identity()
+
         self.cloud_classifier_merge = False
         self.original_num_cloud = self.get_num_of_cloud_layer()
 
         # Initialize weights
         self.cloud.apply(init_weights)
         self.classifier.apply(init_weights)
+
         self.avg_pool = nn.AdaptiveAvgPool2d((1,1))
     def forward(self, x, client_id = 0):
         if self.cloud_classifier_merge:
