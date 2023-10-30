@@ -21,6 +21,8 @@ export WANDB_API_KEY=...
 export WANDB__SERVICE_WAIT=300
 export WANDB_PROJECT=federated_ssl
 export WANDB_ENTITY=gmum
+export WANDB_SH_FILEPATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/${BASH_SOURCE[0]}"
+
 
 #fixed arguments
 num_epoch=200

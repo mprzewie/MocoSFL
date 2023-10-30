@@ -380,6 +380,7 @@ def maybe_setup_wandb(logdir, args=None, run_name_suffix=None, **init_kwargs):
 
     wandb_entity = os.environ.get("WANDB_ENTITY")
     wandb_project = os.environ.get("WANDB_PROJECT")
+    wandb_sh_filepath = os.environ.get("WANDB_SH_FILEPATH")
 
     if wandb_entity is None or wandb_project is None:
         print(f"{wandb_entity=}", f"{wandb_project=}")
@@ -412,6 +413,7 @@ def maybe_setup_wandb(logdir, args=None, run_name_suffix=None, **init_kwargs):
         group=origin_run_name,
         **init_kwargs
     )
+    wandb.save(wandb_sh_filepath)
 
     print("WANDB run", wandb.run.id, new_run_name, origin_run_name)
 
