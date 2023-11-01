@@ -69,10 +69,10 @@ def get_cifar10(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data
         test_loader = get_cifar10_testloader(128, num_workers, False, path_to_data)
         return train_loader, test_loader
 
-def get_cifar100(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_proportion = 1.0, noniid_ratio =1.0, augmentation_option = False, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"):
+def get_cifar100(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_proportion = 1.0, noniid_ratio =1.0, augmentation_option = False, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2",  enforce_separate_classes: bool = False, path_to_data = "./data"):
 
     if pairloader_option != "None":
-        per_client_train_loaders, client_to_labels = get_cifar100_pairloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, pairloader_option, hetero, hetero_string, path_to_data)
+        per_client_train_loaders, client_to_labels = get_cifar100_pairloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, pairloader_option, hetero, hetero_string, path_to_data=path_to_data, enforce_separate_classes=enforce_separate_classes)
         mem_loader, _ = get_cifar100_trainloader(128, num_workers, False, path_to_data = path_to_data)
         test_loader, per_client_test_loaders = get_cifar100_testloaders(128, num_workers, False, path_to_data, client_to_labels=client_to_labels)
 
@@ -205,7 +205,9 @@ def get_tinyimagenet_pairloader(batch_size=16, num_workers=2, shuffle=True, num_
 
 
 def get_cifar100_pairloader(
-        batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"
+        batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2",
+        enforce_separate_classes: bool= False,
+        path_to_data = "./data"
 ) -> Tuple[List[torch.utils.data.DataLoader], Dict[int, Set[int]]]:
     class CIFAR100Pair(torchvision.datasets.CIFAR100):
         """CIFAR100 Dataset.
@@ -249,7 +251,8 @@ def get_cifar100_pairloader(
 
     train_data = torch.utils.data.Subset(train_data, indices)
 
-    return get_multiclient_trainloader_list(train_data, num_client, shuffle, num_workers, batch_size, noniid_ratio, 100, hetero, hetero_string)
+    return get_multiclient_trainloader_list(
+        train_data, num_client, shuffle, num_workers, batch_size, noniid_ratio, 100, hetero, hetero_string, enforce_separate_classes=enforce_separate_classes)
     
 
 def get_cifar10_pairloader(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"):

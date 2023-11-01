@@ -38,7 +38,8 @@ create_dataset = getattr(datasets, f"get_{args.dataset}")
     batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True,
     num_client = args.num_client, data_proportion = args.data_proportion,
     noniid_ratio = args.noniid_ratio, augmentation_option = True,
-    pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string
+    pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string,
+    enforce_separate_classes = args.enforce_separate_classes
 )
 # assert False, client_to_labels
 num_batch = len(per_client_train_loaders[0])

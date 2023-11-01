@@ -1,4 +1,5 @@
 import os
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Set, Tuple, List
 
@@ -92,7 +93,8 @@ class DatasetSplit(torch.utils.data.Dataset):
         return images, labels
 
 def get_multiclient_trainloader_list(
-        training_data, num_client, shuffle, num_workers, batch_size, noniid_ratio = 1.0, num_class = 10, hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2"
+        training_data, num_client, shuffle, num_workers, batch_size, noniid_ratio = 1.0, num_class = 10, hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2",
+        enforce_separate_classes: bool = False
 ) -> Tuple[List[torch.utils.data.DataLoader], Dict[int, Set[int]]]:
     #mearning of default hetero_string = "C_D|B" - dividing clients into two groups, stronger group: C clients has D of the data (batch size = B); weaker group: the other (1-C) clients have (1-D) of the data (batch size = 1).
     if num_client == 1:
@@ -106,7 +108,10 @@ def get_multiclient_trainloader_list(
 
     elif num_client > 1:
         if noniid_ratio < 1.0:
-            training_subset_list, client_to_labels = noniid_alllabel(training_data, num_client, noniid_ratio, num_class, hetero, hetero_string) # TODO: implement non_iid_hetero version.
+            training_subset_list, client_to_labels = noniid_alllabel(
+                training_data, num_client, noniid_ratio, num_class, hetero, hetero_string,
+                enforce_separate_classes=enforce_separate_classes
+            ) # TODO: implement non_iid_hetero version.
             print({k: len(v) for (k,v ) in training_subset_list.items()})
         else:
             client_to_labels = {
@@ -296,22 +301,27 @@ def divergence_plot(path_to_log, freq = 1):
 
 
 def noniid_alllabel(
-        dataset, num_users, noniid_ratio = 0.2, num_class = 10, hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2"
+        dataset, num_users, noniid_ratio = 0.2, num_class = 10, hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2",
+        enforce_separate_classes: bool=False
 ) -> Tuple[Dict[int, Set[int]], Dict[int, Set[int]]]:
     assert not hetero
     print("noniid_alllabel", num_users, noniid_ratio, num_class, hetero)
     num_class_per_client = int(noniid_ratio * num_class)
+
+    if enforce_separate_classes:
+        assert num_class_per_client * num_users <= num_class, f"{enforce_separate_classes=} and {noniid_ratio=}, so {num_class_per_client=} * {num_users=} <= {num_class=} is not satisfied"
     # 500 clients -> *5 = 2500 clients.
     if hetero:
         num_shards_multiplier = float(hetero_string.split("|")[-1].split("_")[-1]) # 0.2 (last float)
         num_shards = int(num_class_per_client  * num_users  / num_shards_multiplier) # more shards (equivalent to more clients)
-        num_imgs = int(len(dataset)/num_users/num_class_per_client * num_shards_multiplier) # less image
+        num_imgs_in_shard = int(len(dataset)/num_users/num_class_per_client * num_shards_multiplier) # less image
         rich_client_ratio = float(hetero_string.split("|")[0].split("_")[0]) # 0.2 (first float)
         rich_client = int(rich_client_ratio * num_users) # 100 clients
         rich_client_gets_shards = int((1-num_shards_multiplier)/num_shards_multiplier) # each get 4 shards
     else:
-        num_shards, num_imgs = num_class_per_client * num_users, int(len(dataset)/num_users/num_class_per_client)
-        print(f"{num_shards=}, {num_imgs=}")
+        num_shards, num_imgs_in_shard = num_class_per_client * num_users, int(len(dataset)/num_users/num_class_per_client)
+        print(f"{num_class_per_client=} {num_users=} {len(dataset)=}")
+        print(f"{num_shards=}, {num_imgs_in_shard=}")
         # assert False, (num_shards, num_imgs)
     # print(f"num_shards: {num_shards}, num_imgs: {num_imgs}")
 
@@ -335,26 +345,31 @@ def noniid_alllabel(
     idxs = idxs_labels[0,:]
     labels = idxs_labels[1, :]
 
-    # print(idxs_labels[1, :1000])
-    # assert False
+    if enforce_separate_classes:
+        cls_to_shards = defaultdict(list)
+        for i in idx_shard:
+            beg, end = i * num_imgs_in_shard, (i + 1) * num_imgs_in_shard
+            lbls = labels[beg:end]
+            assert len(set(lbls)) == 1, f"shards contain multiple classes when {noniid_ratio=}, please consider other noniid_ratio"
+            cls_to_shards[lbls[0]].append(i)
 
-
-    # divide and assign
     if not hetero:
         for i in range(num_users):
-            rand_set = set(np.random.choice(idx_shard, num_class_per_client, replace=False))
+            if enforce_separate_classes:
+                rand_cls_set = np.random.choice(list(cls_to_shards.keys()), num_class_per_client, replace=False)
+                rand_set = set(sum([cls_to_shards[c] for c in rand_cls_set], []))
+                for c in rand_cls_set:
+                    del cls_to_shards[c]
+            else:
+                rand_set = set(np.random.choice(idx_shard, num_class_per_client, replace=False))
             idx_shard = list(set(idx_shard) - rand_set)
             for rand in rand_set:
-                beg, end = rand*num_imgs, (rand+1)*num_imgs
+                beg, end = rand*num_imgs_in_shard, (rand+1)*num_imgs_in_shard
                 dict_users_labeled[i] = np.concatenate((dict_users_labeled[i], idxs[beg:end]), axis=0)
                 dict_labels[i] = np.concatenate((dict_labels[i], labels[beg:end]), axis=0)
 
             dict_labels[i] = set(dict_labels[i])
-            # client_labels = set(idxs_labels[1, dict_users_labeled[i]])
-
-            # print(i, rand_set,)# client_labels)
-            # print(dict_labels[i])
-            # print("----")
+            print(f"Client {i}, selected {len(rand_set)} shards with {len(dict_labels[i])} classes: {dict_labels[i]}, {len(idx_shard)} shards left")
 
     else:
         virtual_num_user = rich_client * rich_client_gets_shards + num_users - rich_client
@@ -363,10 +378,10 @@ def noniid_alllabel(
             idx_shard = list(set(idx_shard) - rand_set)
             if i < rich_client * rich_client_gets_shards: # assign shards for rich clients
                 for rand in rand_set:
-                    dict_users_labeled[i // rich_client_gets_shards] = np.concatenate((dict_users_labeled[i // rich_client_gets_shards], idxs[rand*num_imgs:(rand+1)*num_imgs]), axis=0)
+                    dict_users_labeled[i // rich_client_gets_shards] = np.concatenate((dict_users_labeled[i // rich_client_gets_shards], idxs[rand*num_imgs_in_shard:(rand+1)*num_imgs_in_shard]), axis=0)
             else:
                 for rand in rand_set:
-                    dict_users_labeled[(i - rich_client * rich_client_gets_shards) + rich_client] = np.concatenate((dict_users_labeled[(i - rich_client * rich_client_gets_shards) + rich_client], idxs[rand*num_imgs:(rand+1)*num_imgs]), axis=0)
+                    dict_users_labeled[(i - rich_client * rich_client_gets_shards) + rich_client] = np.concatenate((dict_users_labeled[(i - rich_client * rich_client_gets_shards) + rich_client], idxs[rand*num_imgs_in_shard:(rand+1)*num_imgs_in_shard]), axis=0)
 
 
     for i in range(num_users):
