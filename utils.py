@@ -417,6 +417,19 @@ def maybe_setup_wandb(logdir, args=None, run_name_suffix=None, **init_kwargs):
 
     print("WANDB run", wandb.run.id, new_run_name, origin_run_name)
 
+def get_client_iou_matrix(client_to_labels: Dict[int, Set[int]]) -> np.ndarray:
+    n_clients = len(client_to_labels)
+    ious = np.zeros((n_clients, n_clients))
+
+    for i in range(n_clients):
+        for j in range(n_clients):
+            intersection = client_to_labels[i].intersection(client_to_labels[j])
+            union = client_to_labels[i].union(client_to_labels[j])
+            ious[i,j] = len(intersection) / len(union)
+
+    return ious
+
+
 if __name__ == '__main__':
     #avgfreq
     avg_freq = 1

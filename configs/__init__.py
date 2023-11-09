@@ -83,6 +83,10 @@ def get_sfl_args():
         "--eval-personalized", choices=["square", "diagonal"], default="square",
         help="If square, I will evaluate all clients on all datasets. If diagonal, I will evaluate clients only on their respective datasets (so diagonal is a subset of square)."
     )
+    parser.add_argument(
+        "--qmatching", choices=["noop", "oracle-most-similar", "oracle-least-similar"], default="noop"
+    )
+    parser.add_argument("--qmatching-nqueues", type=int, default=0)
     # Moco setting
     parser.add_argument('--moco_version', type=str, default="V2", choices=["V1", "smallV2", "V2", "largeV2", "byol"], help="moco_version: V1, smallV2, V2, largeV2")
 

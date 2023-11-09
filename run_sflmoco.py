@@ -16,6 +16,9 @@ from functions.sflmoco_functions import sflmoco_simulator
 from functions.sfl_functions import client_backward, loss_based_status
 from functions.attack_functions import MIA_attacker, MIA_simulator
 import gc
+from queue_selection import get_queue_matcher
+from utils import get_client_iou_matrix
+
 VERBOSE = False
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -40,7 +43,6 @@ create_dataset = getattr(datasets, f"get_{args.dataset}")
     noniid_ratio = args.noniid_ratio, augmentation_option = True,
     pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string
 )
-# assert False, client_to_labels
 num_batch = len(per_client_train_loaders[0])
 
 
@@ -111,8 +113,17 @@ global_model.merge_classifier_cloud()
 #get loss function
 criterion = nn.CrossEntropyLoss().cuda()
 
+qmatcher = get_queue_matcher(args)
+
+print(qmatcher)
+
 #initialize sfl
-sfl = sflmoco_simulator(global_model, criterion, per_client_train_loaders, test_loader, per_client_test_loader=per_client_test_loaders, args=args)
+sfl = sflmoco_simulator(
+    global_model, criterion, per_client_train_loaders, test_loader,
+    per_client_test_loader=per_client_test_loaders, args=args,
+    # queue_matcher=NoOpQueueMatcher()
+    queue_matcher=qmatcher
+)
 
 '''Initialze with ResSFL resilient model ''' 
 if args.initialze_path != "None":
@@ -374,7 +385,11 @@ plt.ylabel("Client")
 
 metrics_test["test_linear/client/diagonal"] = np.mean(client_diagonal_accuracies)
 metrics_test["test_linear/client/square"] = np.mean(client_square_accuracies)
-metrics_test["test_linear/grid/"] = wandb.Image(heatmap.get_figure(), caption="Accuracy per task heatmap")
+metrics_test["test_linear/grid"] = wandb.Image(heatmap.get_figure(), caption="Accuracy per task heatmap")
+
+ious = get_client_iou_matrix(client_to_labels=client_to_labels)
+heatmpap = sns.heatmap(ious, annot=True, fmt=".2f")
+metrics_test["test_linear/client_ious"] = wandb.Image(heatmpap.get_figure(), caption="Class-wise client IoUs")
 
 
 # eval_loader = create_train_dataset(128, args.num_workers, False, 1, 0.1, 1.0, False)

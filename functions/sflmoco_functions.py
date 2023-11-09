@@ -20,12 +20,13 @@ from functions.base_funtions import base_simulator, create_base_instance
 import torchvision.transforms as transforms
 import torch.nn.functional as F
 from models.resnet import init_weights
+from queue_selection import QueueMatcher
 from utils import AverageMeter, accuracy
 import numpy as np
 
 
 class sflmoco_simulator(base_simulator):
-    def __init__(self, model, criterion, train_loader, test_loader, per_client_test_loader, args) -> None:
+    def __init__(self, model, criterion, train_loader, test_loader, per_client_test_loader, queue_matcher: QueueMatcher, args) -> None:
         super().__init__(model, criterion, train_loader, test_loader, per_client_test_loader=per_client_test_loader, args=args)
 
         print(f"Clients x {self.num_client}")
@@ -46,7 +47,8 @@ class sflmoco_simulator(base_simulator):
                     criterion=criterion,
                     args=args,
                     server_input_size=self.model.get_smashed_data_size(1, args.data_size),
-                    feature_sharing=args.feature_sharing
+                    feature_sharing=args.feature_sharing,
+                    queue_matcher=queue_matcher
                 )
                 params_to_optimize = list(self.s_instance.model.parameters())
             else:
@@ -465,7 +467,7 @@ class sflmoco_simulator(base_simulator):
         return test_acc_1
 
 class create_sflmocoserver_instance(create_base_instance):
-    def __init__(self, model, criterion, args, server_input_size = 1, feature_sharing = True) -> None:
+    def __init__(self, model, criterion, args, queue_matcher: QueueMatcher, server_input_size = 1, feature_sharing = True) -> None:
         super().__init__(model)
         self.criterion = criterion
         self.t_model = copy.deepcopy(model)
@@ -477,6 +479,7 @@ class create_sflmocoserver_instance(create_base_instance):
 
         self.K = args.K
         self.T = args.T
+        self.queue_matcher = queue_matcher
 
         self.feature_sharing = feature_sharing
         if self.feature_sharing:
@@ -586,10 +589,11 @@ class create_sflmocoserver_instance(create_base_instance):
                 pool = range(self.num_client)
             l_neg_list = []
             for client_id in pool:
+                matched_queues = self.queue_matcher.match_client_queues(queues=self.queue)
                 l_neg_list.append(torch.einsum(
                     'nc,ck->nk', [
                         query_out[client_id*step_size:(client_id + 1)*step_size],
-                        self.queue[client_id].clone().detach()
+                        matched_queues[client_id].clone().detach()
                     ]
                 ))
             l_neg = torch.cat(l_neg_list, dim = 0)
