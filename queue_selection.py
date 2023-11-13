@@ -49,7 +49,7 @@ class OracleMostSimilarClientsQueueMatcher(OracleIOUQueueMatcher):
 
     def match_client_queues(self, queues: List[torch.Tensor]):
         return [
-            torch.cat([queues[s] for s in self.selection[c]])
+            torch.cat([queues[s] for s in self.selection[c]], dim=1)
             for c in range(len(self.ious))
         ]
 
@@ -60,7 +60,7 @@ def get_queue_matcher(args) -> QueueMatcher:
     elif "oracle" in args.qmatching:
         client_to_labels = {
             c: i["labels"]
-            for (c, i) in args.client_info
+            for (c, i) in args.client_info.items()
         }
         ious = get_client_iou_matrix(client_to_labels)
 
