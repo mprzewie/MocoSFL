@@ -423,8 +423,8 @@ def get_client_iou_matrix(client_to_labels: Dict[int, Set[int]]) -> np.ndarray:
 
     for i in range(n_clients):
         for j in range(n_clients):
-            intersection = client_to_labels[i].intersection(client_to_labels[j])
-            union = client_to_labels[i].union(client_to_labels[j])
+            intersection = set(client_to_labels[i]).intersection(client_to_labels[j])
+            union = set(client_to_labels[i]).union(client_to_labels[j])
             ious[i,j] = len(intersection) / len(union)
 
     return ious
