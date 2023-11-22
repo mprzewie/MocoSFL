@@ -530,15 +530,15 @@ class create_sflmocoserver_instance(create_base_instance):
                 client_key = keys[client_id*batch_size:(client_id + 1)*batch_size]
                 ptr = int(self.queue_ptr[client_id])
                 # replace the keys at ptr (dequeue and enqueue)
-                print(ptr, batch_size, self.K)
+                # print(ptr, batch_size, self.K)
                 if (ptr + batch_size) <= self.K:
                     self.queue[client_id][:, ptr:ptr + batch_size] = client_key.T
                 else:
-                    print(client_id, ptr, self.K - ptr)
+                    # print(client_id, ptr, self.K - ptr)
                     self.queue[client_id][:, ptr:] = client_key.T[:, :self.K - ptr]
-                    print(batch_size + ptr - self.K, self.K - ptr)
+                    # print(batch_size + ptr - self.K, self.K - ptr)
                     self.queue[client_id][:, 0:(batch_size + ptr - self.K)] = client_key.T[:, self.K - ptr:]
-                    assert False
+                    # assert False
                 ptr = (ptr + batch_size) % self.K  # move pointer
                 self.queue_ptr[client_id][0] = ptr
 
