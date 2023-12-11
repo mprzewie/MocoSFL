@@ -286,9 +286,19 @@ class ResNet(nn.Module):
     def merge_classifier_cloud(self):
         self.cloud_classifier_merge = True
         cloud_list = list(self.cloud.children())
-        cloud_list.append(MobView())
-        cloud_list.append(self.classifier)
-        self.cloud = nn.Sequential(*cloud_list)
+
+        if not isinstance(self.classifier, nn.ModuleList):
+            cloud_list.append(MobView())
+            cloud_list.append(self.classifier)
+            self.cloud = nn.Sequential(*cloud_list)
+        else:
+            assert len(cloud_list) == 0, f"{len(cloud_list)=}, but should be 0"
+            self.cloud = nn.ModuleList(
+                [
+                    nn.Sequential(MobView(), proj)
+                    for proj in self.classifier
+                ]
+            )
 
     def unmerge_classifier_cloud(self):
         self.cloud_classifier_merge = False
@@ -303,23 +313,31 @@ class ResNet(nn.Module):
 
     def get_num_of_cloud_layer(self):
         num_of_cloud_layer = 0
-        if not self.cloud_classifier_merge:
-            list_of_layers = list(self.cloud.children())
-            for i, module in enumerate(list_of_layers):
-                if "conv3x3" in str(module) or "Linear" in str(module) or "BasicBlock" in str(module) or "BottleNeck" in str(module):
-                    num_of_cloud_layer += 1
-            num_of_cloud_layer += 1
-        else:
-            list_of_layers = list(self.cloud.children())
-            for i, module in enumerate(list_of_layers):
-                if "conv3x3" in str(module) or "Linear" in str(module) or "BasicBlock" in str(module) or "BottleNeck" in str(module):
-                    num_of_cloud_layer += 1
+        list_of_layers = list(self.cloud.children())
+        for i, module in enumerate(list_of_layers):
+            if "conv3x3" in str(module) or "Linear" in str(module) or "BasicBlock" in str(module) or "BottleNeck" in str(module):
+                num_of_cloud_layer += 1
+        num_of_cloud_layer += 1
         return num_of_cloud_layer
 
-    def recover(self):
-        if self.cloud_classifier_merge:
-            self.resplit(self.original_num_cloud)
-            self.unmerge_classifier_cloud()
+        #code was duplicated
+        #if not self.cloud_classifier_merge:
+        #     list_of_layers = list(self.cloud.children())
+        #     for i, module in enumerate(list_of_layers):
+        #         if "conv3x3" in str(module) or "Linear" in str(module) or "BasicBlock" in str(module) or "BottleNeck" in str(module):
+        #             num_of_cloud_layer += 1
+        #     num_of_cloud_layer += 1
+        # else:
+        #     list_of_layers = list(self.cloud.children())
+        #     for i, module in enumerate(list_of_layers):
+        #         if "conv3x3" in str(module) or "Linear" in str(module) or "BasicBlock" in str(module) or "BottleNeck" in str(module):
+        #             num_of_cloud_layer += 1
+        # return num_of_cloud_layer
+
+    # def recover(self):
+    #     if self.cloud_classifier_merge:
+    #         self.resplit(self.original_num_cloud)
+    #         self.unmerge_classifier_cloud()
             
 
     def resplit(self, num_of_cloud_layer):
