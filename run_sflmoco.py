@@ -30,7 +30,6 @@ set_deterministic(args.seed)
 '''Preparing'''
 #get data
 create_dataset = getattr(datasets, f"get_{args.dataset}")
-
 (
     per_client_train_loaders,
     mem_loader,
@@ -46,13 +45,19 @@ create_dataset = getattr(datasets, f"get_{args.dataset}")
 num_batch = len(per_client_train_loaders[0])
 
 
-args.client_info = {
-    i: {
-        "num_training_examples": sum([len(b1) for ((b1, b2), t) in ld]),
-        "labels": sorted(list(client_to_labels[i]))
-    }
-    for (i, ld) in enumerate(per_client_train_loaders)
-}
+# args.client_info = {
+#     i: {
+#         "num_training_examples": sum([len(b1) for ((b1, b2), t) in ld]),
+#         "labels": sorted(list(client_to_labels[i]))
+#     }
+#     for (i, ld) in enumerate(per_client_train_loaders)
+# }
+
+args.client_info = {}
+for i, ld in enumerate(per_client_train_loaders):
+    total_examples = sum(len(batch_data) for batch_data, _ in ld)
+    labels = sorted(set(label for _, label_set in ld for label in label_set))
+    args.client_info[i] = {"num_training_examples": total_examples, "labels": labels}
 
 
 if "ResNet" in args.arch or "resnet" in args.arch:
@@ -353,7 +358,11 @@ metrics_test["knn/accuracy/test"] = val_acc
 
 create_train_dataset = getattr(datasets, f"get_{args.dataset}_trainloader")
 
-eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 1.0, 1.0, False)
+if not args.dataset == 'domainnet':
+    eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 1.0, 1.0, False)
+else:
+    eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 1.0, False, path_to_data="./data/DomainNet/rawdata")
+
 val_acc = sfl.linear_eval_v2(eval_loader, 100)
 sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
 metrics_test["test_linear/global"] = val_acc

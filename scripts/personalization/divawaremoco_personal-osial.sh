@@ -6,38 +6,32 @@
 #SBATCH --ntasks=1
 #SBATCH --partition=rtx3080
 #SBATCH --qos=quick
-
-
 set -e
-
 #eval "$(conda shell.bash hook)"
 #conda activate uj
-source /home/gmosial/miniconda3/bin/activate /home/gmosial/miniconda3/envs/mae_env
-
-
+#source /home/gmosial/miniconda3/bin/activate /home/gmosial/miniconda3/envs/mae_env
 set -x
 
 #cd "$(dirname "$0")"
 #cd ../../
-
-export WANDB_API_KEY=....
+export WANDB_API_KEY=f61fe6de67dc18515ebe11ca944faaa2ccdd11e1
 export WANDB__SERVICE_WAIT=300
 export WANDB_PROJECT=federated_ssl
 export WANDB_ENTITY=gmum
 
 #fixed arguments
-num_epoch=200
+num_epoch=5
 lr=0.06
 moco_version=V2
 arch=ResNet18
 
 #non_iid_list="0.2 1.0"
-noniid_ratio="0.2" # 1.0"
+noniid_ratio="1.0" #"0.2"
 #cutlayer_list="1" # 2"
 #num_client="20"
-num_client=5
-K=4096
-dataset=cifar100
+num_client=6
+K=4100
+dataset=domainnet
 loss_threshold=0.0
 ressfl_alpha=0.0
 bottleneck_option=None
@@ -57,11 +51,11 @@ do
 # output_dir="./outputs/${prefix}_cut${cutlayer}_baseline"
 # python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir}
 #
-# output_dir="./outputs/${prefix}_cut${cutlayer}_no-ft-sharing"
-# python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --disable_feature_sharing
+ output_dir="./outputs/${prefix}_cut${cutlayer}_no-ft-sharing_domainnet"
+ python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --disable_feature_sharing
 
-output_dir="./outputs/${prefix}_cut${cutlayer}_fix-div-aware_lambda${DIV_LAMBDA}"
-python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --div_lambda $DIV_LAMBDA --divergence_aware --div_layerwise fraction
+#output_dir="./outputs/${prefix}_cut${cutlayer}_fix-div-aware_lambda${DIV_LAMBDA}"
+#python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --div_lambda $DIV_LAMBDA --divergence_aware --div_layerwise fraction
 #
 #output_dir="./outputs/${prefix}_cut${cutlayer}_div-aware_no-ft-sharing"
 #python run_sflmoco.py  $constant_args --cutlayer ${cutlayer} --output_dir ${output_dir} --disable_feature_sharing --divergence_aware

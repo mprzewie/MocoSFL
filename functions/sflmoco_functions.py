@@ -418,7 +418,7 @@ class sflmoco_simulator(base_simulator):
             total_top1, total_top5, total_num, feature_bank, feature_labels = 0.0, 0.0, 0, [], []
             with torch.no_grad():
                 # generate feature bank
-                for data, target in memloader[0]:
+                for i, (data, target) in enumerate(memloader[0]):
                     feature = self.model(data.cuda(non_blocking=True))
                     feature = F.normalize(feature, dim=1)
                     feature_bank.append(feature)
@@ -429,7 +429,8 @@ class sflmoco_simulator(base_simulator):
                 feature_labels = torch.cat(feature_labels, dim=0).contiguous().cuda()
                 # feature_labels = torch.tensor(memory_data_loader.dataset.targets, device=feature_bank.device)
                 # loop test data to predict the label by weighted knn search
-                for data, target in self.validate_loader:
+
+                for i, (data, target) in enumerate(self.validate_loader):
                     data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
                     feature = self.model(data)
                     feature = F.normalize(feature, dim=1)

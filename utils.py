@@ -91,14 +91,15 @@ class DatasetSplit(torch.utils.data.Dataset):
         images, labels = self.dataset[self.idxs[item]]
         return images, labels
 
+
 def get_multiclient_trainloader_list(
         training_data, num_client, shuffle, num_workers, batch_size, noniid_ratio = 1.0, num_class = 10, hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2"
 ) -> Tuple[List[torch.utils.data.DataLoader], Dict[int, Set[int]]]:
     #mearning of default hetero_string = "C_D|B" - dividing clients into two groups, stronger group: C clients has D of the data (batch size = B); weaker group: the other (1-C) clients have (1-D) of the data (batch size = 1).
+
     if num_client == 1:
         training_loader_list = [torch.utils.data.DataLoader(training_data,  batch_size=batch_size, shuffle=shuffle,
                 num_workers=num_workers)]
-
         client_to_labels = {
             c: set(list(range(num_class)))
             for c in range(len(training_loader_list))
@@ -115,7 +116,7 @@ def get_multiclient_trainloader_list(
             }
         training_loader_list = []
 
-        
+
 
         if hetero:
             rich_data_ratio = float(hetero_string.split("|")[-1].split("_")[0])
@@ -127,7 +128,6 @@ def get_multiclient_trainloader_list(
             # print(f"client {i}:")
             if noniid_ratio == 1.0:
                 if not hetero:
-
                     training_subset = torch.utils.data.Subset(training_data, list(range(i * (len(training_data)//num_client), (i+1) * (len(training_data)//num_client))))
                 else:
                     if i < rich_client:
@@ -135,7 +135,7 @@ def get_multiclient_trainloader_list(
                     elif i >= rich_client:
                         heteor_list = list(range(rich_data_volume + (i - rich_client) * (len(training_data) - rich_data_volume) // (num_client - rich_client), rich_data_volume + (i - rich_client + 1) * (len(training_data) - rich_data_volume) // (num_client - rich_client)))
                         training_subset = torch.utils.data.Subset(training_data, heteor_list)
-                
+
             else:
                 training_subset = DatasetSplit(training_data, training_subset_list[i])
             # print(len(training_subset))
@@ -157,7 +157,8 @@ def get_multiclient_trainloader_list(
                         training_subset, shuffle=shuffle, num_workers=num_workers, batch_size=real_batch_size, persistent_workers = False)
                 # print(f"batch size is {real_batch_size}")
             training_loader_list.append(subset_training_loader)
-    
+
+
     return training_loader_list, client_to_labels
 
 

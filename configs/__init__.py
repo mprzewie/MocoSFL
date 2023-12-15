@@ -103,7 +103,7 @@ def get_sfl_args():
     parser.add_argument('--CLR_option', type=str, default="multistep", help="set a client LR scheduling option, no need to mannually set, binding with args.moco_version")
     args = parser.parse_args()
 
-    dataset_name_list = ["cifar10", "cifar100", "imagenet", "svhn", "stl10", "tinyimagenet", "imagenet12"]
+    dataset_name_list = ["cifar10", "cifar100", "imagenet", "svhn", "stl10", "tinyimagenet", "imagenet12", "domainnet"]
     if args.dataset not in dataset_name_list:
         raise NotImplementedError
 
@@ -250,6 +250,9 @@ def get_sfl_args():
         args.data_size = 224
     elif args.dataset == "imagenet12":
         args.num_class = 12
+        args.data_size = 224
+    elif args.dataset == "domainnet":
+        args.num_class = 345
         args.data_size = 224
     else:
         raise("UNKNOWN DATASET!")
