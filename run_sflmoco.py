@@ -17,12 +17,14 @@ from functions.sfl_functions import client_backward, loss_based_status
 from functions.attack_functions import MIA_attacker, MIA_simulator
 import gc
 from queue_selection import get_queue_matcher
-from utils import get_client_iou_matrix
+from utils import get_client_iou_matrix, get_time
 
 VERBOSE = False
 import seaborn as sns
 import matplotlib.pyplot as plt
 import wandb
+
+get_time()
 #get default args
 args = get_sfl_args()
 set_deterministic(args.seed)
@@ -42,22 +44,56 @@ create_dataset = getattr(datasets, f"get_{args.dataset}")
     noniid_ratio = args.noniid_ratio, augmentation_option = True,
     pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string
 )
+get_time()
 num_batch = len(per_client_train_loaders[0])
+print("num_batch", num_batch)
+
+args.client_info = {
+    i: {
+        "num_training_examples": sum([len(b1) for ((b1, b2), t) in ld]),
+        "labels": sorted(list(client_to_labels[i]))
+    }
+    for (i, ld) in enumerate(per_client_train_loaders)
+}
+get_time()
+print("args.client_info", args.client_info)
+print("per_client_train_loaders", len(per_client_train_loaders))
+for i, dl in enumerate(per_client_train_loaders):
+    print("per_client_train_loaders i", i, "len: ", len(dl))
+    for d in dl:
+        print("img data batch in per_client_train_loaders", d[0][0].shape)
+        print("labels in per_client_train_loaders: ", d[1])
+        break
+
+print("mem_loader", len(mem_loader))
+for i, ml in enumerate(mem_loader):
+    print("memory loader len", len(ml))
+    for mll in ml:
+        print("img data batch in memoryloader", mll[0].shape)
+        print("labels in memoryloader", mll[1])
+        break
 
 
-# args.client_info = {
-#     i: {
-#         "num_training_examples": sum([len(b1) for ((b1, b2), t) in ld]),
-#         "labels": sorted(list(client_to_labels[i]))
-#     }
-#     for (i, ld) in enumerate(per_client_train_loaders)
-# }
+print("test_loader", len(test_loader))
+for i, tl in enumerate(test_loader):
+    print("img data batch in test_loader", tl[0].shape)
+    print("test labels", tl[1])
+    break
 
-args.client_info = {}
-for i, ld in enumerate(per_client_train_loaders):
-    total_examples = sum(len(batch_data) for batch_data, _ in ld)
-    labels = sorted(set(label for _, label_set in ld for label in label_set))
-    args.client_info[i] = {"num_training_examples": total_examples, "labels": labels}
+print("per_client_test_loaders", len(per_client_test_loaders))
+for k, v in per_client_test_loaders.items():
+    print("client", k)
+    print("per_client_test_loaders len", len(v))
+    for d in v:
+        print("img data batch in per client testloader", len(d), d[0].shape)
+        break
+
+get_time()
+# args.client_info = {}
+# for i, ld in enumerate(per_client_train_loaders):
+#     total_examples = sum(len(batch_data) for batch_data, _ in ld)
+#     labels = sorted(set(label for _, label_set in ld for label in label_set))
+#     args.client_info[i] = {"num_training_examples": total_examples, "labels": labels}
 
 
 if "ResNet" in args.arch or "resnet" in args.arch:
@@ -71,11 +107,12 @@ elif "vgg" in args.arch:
 elif "MobileNetV2" in args.arch:
     create_arch =  getattr(mobilenetv2, args.arch)
     output_dim = 1280
+
 #get model - use a larger classifier, as in Zhuang et al. Divergence-aware paper
 global_model = create_arch(cutting_layer=args.cutlayer, num_client = args.num_client, num_class=args.K_dim, group_norm=True, input_size= args.data_size,
                              adds_bottleneck=args.adds_bottleneck, bottleneck_option=args.bottleneck_option, c_residual = args.c_residual, WS = args.WS)
 
-
+get_time()
 predictor_list = []
 
 if args.mlp:
@@ -121,7 +158,7 @@ criterion = nn.CrossEntropyLoss().cuda()
 qmatcher = get_queue_matcher(args)
 
 print(qmatcher)
-
+get_time()
 #initialize sfl
 sfl = sflmoco_simulator(
     global_model, criterion, per_client_train_loaders, test_loader,
@@ -129,6 +166,7 @@ sfl = sflmoco_simulator(
     # queue_matcher=NoOpQueueMatcher()
     queue_matcher=qmatcher
 )
+get_time()
 
 '''Initialze with ResSFL resilient model ''' 
 if args.initialze_path != "None":
@@ -167,7 +205,7 @@ if not args.resume:
     loss_status = loss_based_status(loss_threshold = args.loss_threshold)
     
     for epoch in range(1, args.num_epoch + 1):
-        
+        get_time()
         if args.loss_threshold > 0.0:
             print(f"loss_status: {loss_status.status}")
 

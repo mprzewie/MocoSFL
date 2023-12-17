@@ -11,9 +11,17 @@ import sys
 import wandb
 from PIL import ImageFilter
 import random
+from datetime import datetime
 from torchvision.utils import make_grid
 # import matplotlib.pyplot as plt
 formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+
+
+def get_time():
+    now = datetime.now()
+    formatted_datetime = now.strftime("%Y-%m-%d %H:%M:%S")
+    print("Aktualna data i godzina:", formatted_datetime)
+
 
 def setup_logger(name, log_file, level=logging.INFO, console_out = True):
     """To setup as many loggers as you want"""

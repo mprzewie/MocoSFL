@@ -14,7 +14,6 @@ from typing import Optional, Dict, Set, Tuple, List
 import os
 from torch.utils.data import DataLoader, Dataset
 
-
 STL10_TRAIN_MEAN = (0.4914, 0.4822, 0.4465)
 STL10_TRAIN_STD = (0.2471, 0.2435, 0.2616)
 CIFAR10_TRAIN_MEAN = (0.4914, 0.4822, 0.4465)
@@ -80,6 +79,9 @@ def get_cifar100(batch_size=16, num_workers=2, shuffle=True, num_client = 1, dat
         per_client_train_loaders, client_to_labels = get_cifar100_pairloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, pairloader_option, hetero, hetero_string, path_to_data)
         mem_loader, _ = get_cifar100_trainloader(128, num_workers, False, path_to_data = path_to_data)
         test_loader, per_client_test_loaders = get_cifar100_testloaders(128, num_workers, False, path_to_data, client_to_labels=client_to_labels)
+
+
+
 
         return per_client_train_loaders, mem_loader, test_loader, per_client_test_loaders, client_to_labels
     else:
@@ -966,9 +968,7 @@ def get_multi_client_trainloader_list(
     client_to_labels = {}
 
     if num_clients == 1:
-        # Jeden klient ma dostęp do danych ze wszystkich domen
-        concatenated_data = ConcatDataset(multi_domain_train_data)
-        train_loader = DataLoader(concatenated_data, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size, persistent_workers=(num_workers > 0))
+        train_loader = DataLoader(multi_domain_train_data, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size, persistent_workers=(num_workers > 0))
         train_loader_list.append(train_loader)
         client_to_labels[0] = set(range(num_classes))
     else:
@@ -1107,13 +1107,27 @@ def get_domainnet_trainloader(batch_size=16, num_workers=2, shuffle=True, num_cl
 
     all_domain_data = read_all_domainnet_data(path_to_data, split=split)
 
-    multi_domain_train_data = []
-    for domain in all_domain_data:
-        data_paths, data_labels = all_domain_data[domain]
-        domain_dataset = DomainNet(data_paths, data_labels, transforms=transform_train)
-        indices = torch.randperm(len(domain_dataset))[:int(len(domain_dataset) * data_portion)]
-        subset_domain_data = torch.utils.data.Subset(domain_dataset, indices)
-        multi_domain_train_data.append(subset_domain_data)
+    if num_client == 1:
+        all_data_paths = []
+        all_data_labels = []
+        for i, domain in enumerate(all_domain_data):
+            data_paths, data_labels = all_domain_data[domain]
+            all_data_paths.extend(data_paths)
+            all_data_labels.extend(data_labels)
+
+        all_domain_train_data = DomainNet(all_data_paths, all_data_labels, transforms=transform_train)
+        indices = torch.randperm(len(all_domain_train_data))[:int(len(all_domain_train_data) * data_portion)]
+        multi_domain_train_data = torch.utils.data.Subset(all_domain_train_data, indices)
+
+    else:
+        multi_domain_train_data = []
+        for domain in all_domain_data:
+            data_paths, data_labels = all_domain_data[domain]
+            domain_dataset = DomainNet(data_paths, data_labels, transforms=transform_train)
+            indices = torch.randperm(len(domain_dataset))[:int(len(domain_dataset) * data_portion)]
+            subset_domain_data = torch.utils.data.Subset(domain_dataset, indices)
+            multi_domain_train_data.append(subset_domain_data)
+
 
     domainnet_training_loader, client_to_labels = get_multi_client_trainloader_list(multi_domain_train_data, num_client, shuffle, num_workers, batch_size, 345)
 
@@ -1164,11 +1178,11 @@ def get_domainnet(batch_size=16, num_workers=2, shuffle=True, num_client=1, data
                                                                               data_proportion,
                                                                               path_to_data)
         # todo change batch size here
-        mem_loader, _ = get_domainnet_trainloader(128, num_workers, False, num_client,
+        mem_loader, _ = get_domainnet_trainloader(64, num_workers, False, 1,
                                                   data_proportion, augmentation_option, path_to_data)
 
         # todo change batch size here
-        test_loader, per_client_test_loaders = get_domainnet_testloader(128, num_workers, False,
+        test_loader, per_client_test_loaders = get_domainnet_testloader(64, num_workers, False,
                                                                         path_to_data,
                                                                         client_to_labels)
 
@@ -1179,7 +1193,7 @@ def get_domainnet(batch_size=16, num_workers=2, shuffle=True, num_client=1, data
                                                   data_proportion, augmentation_option, path_to_data)
 
         # todo change batch size here (if needed)
-        test_loader, per_client_test_loaders = get_domainnet_testloader(128, num_workers, False,
+        test_loader, per_client_test_loaders = get_domainnet_testloader(64, num_workers, False,
                                                                         path_to_data,
                                                                         client_to_labels)
 
