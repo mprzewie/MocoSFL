@@ -55,6 +55,7 @@ args.client_info = {
     }
     for (i, ld) in enumerate(per_client_train_loaders)
 }
+
 get_time()
 print("args.client_info", args.client_info)
 print("per_client_train_loaders", len(per_client_train_loaders))
@@ -86,6 +87,7 @@ for k, v in per_client_test_loaders.items():
     print("per_client_test_loaders len", len(v))
     for d in v:
         print("img data batch in per client testloader", len(d), d[0].shape)
+        print("labels in per_client_test_loaders", d[1])
         break
 
 get_time()

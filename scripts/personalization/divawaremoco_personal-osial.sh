@@ -1,16 +1,23 @@
 #!/bin/bash
 #SBATCH --job-name=FedSSL
 #SBATCH --gpus=1
-#SBATCH --mem-per-cpu=4G
-#SBATCH --cpus-per-task=10
+#SBATCH --mem-per-cpu=6G
+#SBATCH --cpus-per-task=12
 #SBATCH --ntasks=1
 #SBATCH --partition=dgx
 #SBATCH --qos=normal
+
+##SBATCH --job-name=FedSSL_noftsh_6
+##SBATCH --gpus=ampere:1
+##SBATCH --mem-per-cpu=6G
+##SBATCH --cpus-per-task=12
+##SBATCH --ntasks=1
 
 set -e
 #eval "$(conda shell.bash hook)"
 #conda activate uj
 #source /home/gmosial/miniconda3/bin/activate /home/gmosial/miniconda3/envs/mae_env
+#source /raid/NFS_SHARE/home/marcin.osial/miniconda3/bin/activate /raid/NFS_SHARE/home/marcin.osial/miniconda3/envs/maenv
 set -x
 
 #cd "$(dirname "$0")"
@@ -21,7 +28,7 @@ export WANDB_PROJECT=federated_ssl
 export WANDB_ENTITY=gmum
 
 #fixed arguments
-num_epoch=5
+num_epoch=20
 lr=0.06
 moco_version=V2
 arch=ResNet18
@@ -33,9 +40,9 @@ noniid_ratio="1.0" #"0.2"
 num_client=6
 K=4100
 dataset=domainnet
-data_proportion=0.01
+data_proportion=1.0
 num_workers=12
-batch_size=64
+batch_size=100
 loss_threshold=0.0
 ressfl_alpha=0.0
 bottleneck_option=None
