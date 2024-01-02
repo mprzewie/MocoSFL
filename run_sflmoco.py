@@ -228,7 +228,6 @@ if not args.resume:
                     # assert False, (query.shape, pkey.shape)
                     hidden_query = sfl.c_instance_list[client_id](query) # pass to online
                     hidden_query_list[i] = hidden_query
-                    assert False, (query.shape, hidden_query.shape, hidden_query.requires_grad)
                     with torch.no_grad():
                         hidden_pkey = sfl.c_instance_list[client_id].t_model(pkey).detach() # pass to target
                     hidden_pkey_list[i] = hidden_pkey
