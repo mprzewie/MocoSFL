@@ -80,6 +80,9 @@ def get_sfl_args():
             """
     )
     parser.add_argument(
+        "--disable_sync", action="store_true", default=False, help="disable weight synchronization",
+    )
+    parser.add_argument(
         "--eval-personalized", choices=["square", "diagonal"], default="square",
         help="If square, I will evaluate all clients on all datasets. If diagonal, I will evaluate clients only on their respective datasets (so diagonal is a subset of square)."
     )
