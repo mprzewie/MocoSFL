@@ -203,6 +203,7 @@ if not args.resume:
                     # assert False, (query.shape, pkey.shape)
                     hidden_query = sfl.c_instance_list[client_id](query)# pass to online
                     hidden_query_list[i] = hidden_query
+                    assert False, (query.shape, hidden_query.shape, hidden_query.requires_grad)
                     with torch.no_grad():
                         hidden_pkey = sfl.c_instance_list[client_id].t_model(pkey).detach() # pass to target
                     hidden_pkey_list[i] = hidden_pkey
@@ -224,8 +225,6 @@ if not args.resume:
             sfl.s_optimizer.zero_grad()
             #server compute
             loss, gradient, accu = sfl.s_instance.compute(stack_hidden_query, stack_hidden_pkey, pool = pool)
-
-
 
             sfl.s_optimizer.step() # with reduced step, to simulate a large batch size.
 
@@ -288,7 +287,7 @@ if not args.resume:
 
             gc.collect()
 
-            if batch == num_batch - 1 or (batch % (num_batch//args.avg_freq) == (num_batch//args.avg_freq) - 1):
+            if (batch == num_batch - 1 or (batch % (num_batch//args.avg_freq) == (num_batch//args.avg_freq) - 1)) and (not args.disable_sync):
                 # sync client-side models
                 divergence_metrics = sfl.fedavg(pool, divergence_aware = args.divergence_aware, divergence_measure = args.divergence_measure)
                 if divergence_metrics is not None:
