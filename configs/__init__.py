@@ -107,6 +107,11 @@ def get_sfl_args():
     parser.add_argument('--aug_plus', action='store_true', default=False, help="apply extra augmentation (Gaussian Blur))")
     parser.add_argument('--cos', action='store_true', default=False, help="use cosannealing LR scheduler")
     parser.add_argument('--CLR_option', type=str, default="multistep", help="set a client LR scheduling option, no need to mannually set, binding with args.moco_version")
+
+    parser.add_argument("--gmatching", type=str, choices=["noop", "oracle-most-similar"], default="noop")
+    parser.add_argument("--gmatching-ngrads", type=int, default=0)
+
+
     args = parser.parse_args()
 
     dataset_name_list = ["cifar10", "cifar100", "imagenet", "svhn", "stl10", "tinyimagenet", "imagenet12"]

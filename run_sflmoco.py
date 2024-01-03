@@ -8,8 +8,8 @@ from copy import deepcopy
 
 import torch
 # override calls to cuda()
-# torch.Tensor.cuda = lambda self, *args, **kwargs: torch.Tensor.cpu(self)
-# torch.nn.Module.cuda = lambda self, *args, **kwargs: torch.nn.Module.cpu(self)
+torch.Tensor.cuda = lambda self, *args, **kwargs: torch.Tensor.cpu(self)
+torch.nn.Module.cuda = lambda self, *args, **kwargs: torch.nn.Module.cpu(self)
 
 import datasets
 from configs import get_sfl_args, set_deterministic
@@ -24,7 +24,7 @@ from functions.sflmoco_functions import sflmoco_simulator
 from functions.sfl_functions import client_backward, loss_based_status
 from functions.attack_functions import MIA_attacker, MIA_simulator
 import gc
-from queue_selection import get_queue_matcher
+from queue_selection import get_queue_matcher, get_gradient_matcher
 from utils import get_client_iou_matrix
 
 VERBOSE = False
@@ -139,6 +139,7 @@ global_model.merge_classifier_cloud()
 criterion = nn.CrossEntropyLoss().cuda()
 
 qmatcher = get_queue_matcher(args)
+gmatcher = get_gradient_matcher(args)
 
 print(qmatcher)
 
@@ -324,7 +325,7 @@ if not args.resume:
                         avg_gan_train_loss += gan_train_loss
                         avg_gan_eval_loss += gan_eval_loss
 
-                #client backward
+                gradient_dict = gmatcher.match_gradient_dict(gradient_dict)
                 client_backward(sfl, pool, gradient_dict)
             else:
                 # (optional) step client scheduler (lower its LR)
