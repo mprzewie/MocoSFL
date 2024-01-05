@@ -8,8 +8,10 @@ from copy import deepcopy
 
 import torch
 # override calls to cuda()
-torch.Tensor.cuda = lambda self, *args, **kwargs: torch.Tensor.cpu(self)
-torch.nn.Module.cuda = lambda self, *args, **kwargs: torch.nn.Module.cpu(self)
+
+if not torch.cuda.is_available():
+    torch.Tensor.cuda = lambda self, *args, **kwargs: torch.Tensor.cpu(self)
+    torch.nn.Module.cuda = lambda self, *args, **kwargs: torch.nn.Module.cpu(self)
 
 import datasets
 from configs import get_sfl_args, set_deterministic
