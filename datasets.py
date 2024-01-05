@@ -9,7 +9,14 @@ import torchvision.datasets as datasets
 from torch.utils.data import TensorDataset, DataLoader
 from utils import GaussianBlur, get_multiclient_trainloader_list, Subset
 from PIL import Image
+
+from typing import Optional, Dict, Set, Tuple, List
 import os
+from torch.utils.data import DataLoader, Dataset
+
+import os
+import requests
+import zipfile
 
 STL10_TRAIN_MEAN = (0.4914, 0.4822, 0.4465)
 STL10_TRAIN_STD = (0.2471, 0.2435, 0.2616)
@@ -23,6 +30,8 @@ SVHN_TRAIN_MEAN = (0.3522, 0.4004, 0.4463)
 SVHN_TRAIN_STD = (0.1189, 0.1377, 0.1784)
 IMAGENET_TRAIN_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_TRAIN_STD = (0.229, 0.224, 0.225)
+DOMAINNET_TRAIN_MEAN = (0.485, 0.456, 0.406)
+DOMAINNET_TRAIN_STD = (0.229, 0.224, 0.225)
 
 def denormalize(x, dataset): # normalize a zero mean, std = 1 to range [0, 1]
     
@@ -70,11 +79,13 @@ def get_cifar10(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data
         return train_loader, test_loader
 
 def get_cifar100(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_proportion = 1.0, noniid_ratio =1.0, augmentation_option = False, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"):
-
     if pairloader_option != "None":
         per_client_train_loaders, client_to_labels = get_cifar100_pairloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, pairloader_option, hetero, hetero_string, path_to_data)
         mem_loader, _ = get_cifar100_trainloader(128, num_workers, False, path_to_data = path_to_data)
         test_loader, per_client_test_loaders = get_cifar100_testloaders(128, num_workers, False, path_to_data, client_to_labels=client_to_labels)
+
+
+
 
         return per_client_train_loaders, mem_loader, test_loader, per_client_test_loaders, client_to_labels
     else:
@@ -202,7 +213,6 @@ def get_tinyimagenet_pairloader(batch_size=16, num_workers=2, shuffle=True, num_
     cifar100_training_loader = get_multiclient_trainloader_list(train_data, num_client, shuffle, num_workers, batch_size, noniid_ratio, 200, hetero, hetero_string)
     
     return cifar100_training_loader
-
 
 def get_cifar100_pairloader(
         batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"
@@ -809,7 +819,6 @@ def get_cifar100_testloaders(
         shuffle: whether to shuffle
     Returns: cifar100_test_loader:torch dataloader object
     """
-
     transform_test = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(CIFAR100_TRAIN_MEAN, CIFAR100_TRAIN_STD)
@@ -936,3 +945,361 @@ def get_svhn_pairloader(batch_size=16, num_workers=2, shuffle=True, num_client =
     svhn_training_loader = get_multiclient_trainloader_list(train_data, num_client, shuffle, num_workers, batch_size, noniid_ratio, 10, hetero, hetero_string)
     
     return svhn_training_loader
+
+
+def get_multi_client_trainloader_list(
+        multi_domain_train_data: List[Dataset], num_clients: int, shuffle: bool, num_workers: int, batch_size: int, client_labels: Set) -> Tuple[List[DataLoader], Dict[int, Set[int]]]:
+    """
+    Create a list of DataLoaders for multi-client training.
+
+    :param multi_domain_train_data: List of datasets for each domain.
+    :param num_clients: Number of clients.
+    :param shuffle: Whether to shuffle the data.
+    :param num_workers: Number of workers for loading data.
+    :param batch_size: Batch size for each DataLoader.
+    :param non_iid_ratio: Ratio for non-IID data split.
+    :param client_labels: Set of choosen class labels
+    :param heterogeneity: Whether to have heterogeneous data distribution.
+    :param hetero_config: Configuration string for heterogeneity.
+
+    :return: Tuple of DataLoader list and dictionary mapping clients to their labels.
+    """
+
+    if num_clients not in [1, len(multi_domain_train_data)]:
+        raise ValueError("Number of clients must be either 1 or equal to the number of domains.")
+
+    train_loader_list = []
+    client_to_labels = {}
+
+    if num_clients == 1:
+        train_loader = DataLoader(multi_domain_train_data, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size, persistent_workers=(num_workers > 0))
+        train_loader_list.append(train_loader)
+        client_to_labels[0] = client_labels
+    else:
+        for i, domain_data in enumerate(multi_domain_train_data):
+            client_to_labels[i] = client_labels
+            subset_train_loader = DataLoader(domain_data, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size, persistent_workers=(num_workers > 0))
+            train_loader_list.append(subset_train_loader)
+
+    return train_loader_list, client_to_labels
+
+
+def read_all_domainnet_data(dataset_path: str, split: str = "train") -> Dict[
+    str, Tuple[List[str], List[int]]]:
+    """
+    Load data from all domains in the DomainNet dataset, filtering for specific classes based on file paths.
+
+    :param dataset_path: Path to the DomainNet data folder.
+    :param split: Data split type (default 'train').
+    :return: Dictionary with domain names as keys and (data_paths, data_labels) as values.
+    """
+
+    label_names = ['bird', 'feather', 'headphones', 'ice_cream', 'teapot', 'tiger', 'whale', 'windmill', 'wine_glass',
+                   'zebra']
+
+    all_data = {}
+    class_counts = {}
+    domains = ["clipart", "infograph", "painting", "quickdraw", "real", "sketch"]
+
+    for domain in domains:
+        data_paths, data_labels = [], []
+        split_file = os.path.join(dataset_path, "splits", f"{domain}_{split}.txt")
+
+        with open(split_file, "r") as file:
+            for line in file:
+                data_path, label = line.strip().split(' ')
+                # Extracting class name from the data path
+                class_name = data_path.split('/')[1]
+
+                if label_names is None or class_name in label_names:
+                    data_paths.append(os.path.join(dataset_path, data_path))
+                    data_labels.append(int(label))
+
+        all_data[domain] = (data_paths, data_labels)
+
+        # Count labels in the domain
+        for label in data_labels:
+            if domain not in class_counts:
+                class_counts[domain] = {}
+            if label not in class_counts[domain]:
+                class_counts[domain][label] = 0
+            class_counts[domain][label] += 1
+
+    # Display count of instances for each class in each domain
+    for domain, counts in class_counts.items():
+        print(f"Domain: {domain}")
+        for label, count in counts.items():
+            print(f"Class {label}: {count} instances")
+
+    return all_data
+
+
+# DomainNet Dataset Class
+class DomainNet(Dataset):
+    """
+    Dataset class for DomainNet data.
+
+    Attributes:
+        data_paths (List[str]): Paths to the image files.
+        data_labels (List[int]): Labels corresponding to the images.
+        transforms (transforms.Compose): Transformations to be applied to the images.
+    """
+    def __init__(self, data_paths: List[str], data_labels: List[int], transforms: transforms.Compose):
+        super().__init__()
+        self.data_paths = data_paths
+        self.data_labels = data_labels
+        self.transforms = transforms
+
+    def __getitem__(self, index: int):
+        img = Image.open(self.data_paths[index]).convert("RGB")
+        label = self.data_labels[index]
+        img = self.transforms(img)
+        return img, label
+
+    def __len__(self):
+        return len(self.data_paths)
+
+def get_domainnet_pairloader(batch_size=16, num_workers=2, shuffle=True, num_client=1, data_portion=1.0,
+                            path_to_data="./data"):
+
+    all_domain_data = read_all_domainnet_data(path_to_data, split="train")
+
+    train_transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.RandomResizedCrop(224, scale=(0.75, 1)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(DOMAINNET_TRAIN_MEAN, DOMAINNET_TRAIN_STD)
+    ])
+
+    class DomainNetPair(DomainNet):
+        def __init__(self, data_paths, data_labels, transform=None):
+            self.data_paths = data_paths
+            self.data_labels = data_labels
+            self.transform = transform
+
+        def __getitem__(self, index):
+            img_path = self.data_paths[index]
+            label = self.data_labels[index]
+            img = Image.open(img_path).convert("RGB")
+            img_pair1 = self.transform(img)
+            img_pair2 = self.transform(img)
+            return (img_pair1, img_pair2), label
+
+        def __len__(self):
+            return len(self.data_paths)
+
+    multi_domain_train_data = []
+    client_labels = set()
+    for i, domain in enumerate(all_domain_data):
+        data_paths, data_labels = all_domain_data[domain]
+        client_labels.update(set(data_labels))
+        domain_train_data = DomainNetPair(data_paths, data_labels, train_transform)
+        indices = torch.randperm(len(domain_train_data))[:int(len(domain_train_data) * data_portion)]
+        subset_domain_train_data = torch.utils.data.Subset(domain_train_data, indices)
+        multi_domain_train_data.append(subset_domain_train_data)
+
+    return get_multi_client_trainloader_list(multi_domain_train_data, num_client, shuffle, num_workers, batch_size, client_labels)
+
+
+def get_domainnet_trainloader(batch_size=16, num_workers=2, shuffle=True, num_client=1, data_portion=1.0, augmentation_option=False, path_to_data="./data", split="train"):
+    """
+
+    Parameters:
+        batch_size: Batch size for the DataLoader.
+        num_workers: Number of worker threads for loading data.
+        shuffle: Whether to shuffle the data.
+        num_client: Number of clients (domains) in federated learning.
+        data_portion: What portion of data to be used.
+        augmentation_option: Whether to apply data augmentation.
+        path_to_data: Path to the DomainNet data.
+
+    Returns:
+        A list of DataLoaders for each client and a dictionary assigning clients to classes.
+    """
+
+    if augmentation_option:
+        transform_train = transforms.Compose([
+            transforms.Resize((224,224)),
+            transforms.RandomResizedCrop(224, scale=(0.75, 1)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(15),
+            transforms.ToTensor(),
+            transforms.Normalize(DOMAINNET_TRAIN_MEAN, DOMAINNET_TRAIN_STD)
+        ])
+    else:
+        transform_train = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(DOMAINNET_TRAIN_MEAN, DOMAINNET_TRAIN_STD)
+        ])
+
+    all_domain_data = read_all_domainnet_data(path_to_data, split=split)
+
+    if num_client == 1:
+        client_labels = set()
+        all_data_paths = []
+        all_data_labels = []
+        for i, domain in enumerate(all_domain_data):
+            data_paths, data_labels = all_domain_data[domain]
+            all_data_paths.extend(data_paths)
+            all_data_labels.extend(data_labels)
+            client_labels.update(set(data_labels))
+
+        all_domain_train_data = DomainNet(all_data_paths, all_data_labels, transforms=transform_train)
+        indices = torch.randperm(len(all_domain_train_data))[:int(len(all_domain_train_data) * data_portion)]
+        multi_domain_train_data = torch.utils.data.Subset(all_domain_train_data, indices)
+
+    else:
+        client_labels = set()
+        multi_domain_train_data = []
+        for domain in all_domain_data:
+            data_paths, data_labels = all_domain_data[domain]
+            client_labels.update(set(data_labels))
+            domain_dataset = DomainNet(data_paths, data_labels, transforms=transform_train)
+            indices = torch.randperm(len(domain_dataset))[:int(len(domain_dataset) * data_portion)]
+            subset_domain_data = torch.utils.data.Subset(domain_dataset, indices)
+            multi_domain_train_data.append(subset_domain_data)
+
+
+    domainnet_training_loader, client_to_labels = get_multi_client_trainloader_list(multi_domain_train_data, num_client, shuffle, num_workers, batch_size, client_labels)
+    return domainnet_training_loader, client_to_labels
+
+
+def generate_domain_net_data(dir_path):
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+
+    # Setup directory for train/test data
+    train_path = dir_path + "train/"
+    test_path = dir_path + "test/"
+
+    if not os.path.exists(train_path):
+        os.makedirs(train_path)
+    if not os.path.exists(test_path):
+        os.makedirs(test_path)
+
+    root = dir_path + "rawdata"
+
+    domains = ['clipart', 'infograph', 'painting', 'quickdraw', 'real', 'sketch']
+    urls = [
+        'http://csr.bu.edu/ftp/visda/2019/multi-source/groundtruth/clipart.zip',
+        'http://csr.bu.edu/ftp/visda/2019/multi-source/infograph.zip',
+        'http://csr.bu.edu/ftp/visda/2019/multi-source/groundtruth/painting.zip',
+        'http://csr.bu.edu/ftp/visda/2019/multi-source/quickdraw.zip',
+        'http://csr.bu.edu/ftp/visda/2019/multi-source/real.zip',
+        'http://csr.bu.edu/ftp/visda/2019/multi-source/sketch.zip',
+    ]
+    http_head = 'http://csr.bu.edu/ftp/visda/2019/multi-source/'
+    # Get DomainNet data
+
+    for d, u in zip(domains, urls):
+        zip_path = os.path.join(root, f"{d}.zip")
+        extract_path = os.path.join(root, d)
+
+        if not os.path.exists(zip_path):
+            r = requests.get(u, stream=True)
+            with open(zip_path, 'wb') as f:
+                f.write(r.content)
+
+        if not os.path.exists(extract_path):
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(root)
+                print(f"File {d}.zip unziped succesfully.")
+            except Exception as e:
+                print(f"Error when unziping {d}.zip: {e}")
+
+        for suffix in ['train', 'test']:
+            txt_url = f"{http_head}domainnet/txt/{d}_{suffix}.txt"
+            txt_path = os.path.join(root, 'splits', f"{d}_{suffix}.txt")
+            if not os.path.exists(txt_path):
+                r = requests.get(txt_url, stream=True)
+                os.makedirs(os.path.dirname(txt_path), exist_ok=True)
+                with open(txt_path, 'wb') as f:
+                    f.write(r.content)
+
+
+def get_domainnet(batch_size=16, num_workers=2, shuffle=True, num_client=1, data_proportion=1.0, noniid_ratio=1.0, augmentation_option=False, pairloader_option="None", hetero=False, hetero_string="0.2_0.8|16|0.8_0.2", path_to_data="./data/DomainNet/rawdata"):
+    generate_domain_net_data("data/DomainNet/")
+
+    if pairloader_option != "None":
+        per_client_train_loaders, client_to_labels = get_domainnet_pairloader(batch_size, num_workers,
+                                                                              shuffle, num_client,
+                                                                              data_proportion,
+                                                                              path_to_data)
+        # todo change batch size here
+        mem_loader, _ = get_domainnet_trainloader(64, num_workers, False, 1,
+                                                  data_proportion, augmentation_option, path_to_data)
+
+        # todo change batch size here
+        test_loader, per_client_test_loaders = get_domainnet_testloader(64, num_workers, False,
+                                                                        path_to_data,
+                                                                        client_to_labels)
+
+        return per_client_train_loaders, mem_loader, test_loader, per_client_test_loaders, client_to_labels
+    else:
+
+        per_client_train_loaders, client_to_labels = get_domainnet_trainloader(batch_size, num_workers, shuffle, num_client,
+                                                  data_proportion, augmentation_option, path_to_data)
+
+        # todo change batch size here (if needed)
+        test_loader, per_client_test_loaders = get_domainnet_testloader(64, num_workers, False,
+                                                                        path_to_data,
+                                                                        client_to_labels)
+
+        return per_client_train_loaders, test_loader, per_client_test_loaders, client_to_labels
+
+def get_domainnet_testloader(
+        batch_size=16, num_workers=2, shuffle=False, path_to_data="./data", client_to_labels: Optional[Dict[int, Set[int]]] = None, split="test"
+):
+    """
+    Returns a DataLoader for the DomainNet test data set.
+
+    Parameters:
+        batch_size: Batch size for the DataLoader.
+        num_workers: Number of threads used for loading data.
+        shuffle: Whether to shuffle the data.
+        path_to_data: Path to DomainNet data.
+        client_to_labels: Dictionary assigning clients to classes.
+        split: Type of data split (default 'test').
+
+    Returns:
+        domainnet_test_loader: The main test DataLoader.
+        per_client_test_loaders: Dictionary of DataLoaders for each client.
+    """
+    transform_test = transforms.Compose([
+        transforms.Resize((224,224)),
+        transforms.ToTensor(),
+        transforms.Normalize(DOMAINNET_TRAIN_MEAN, DOMAINNET_TRAIN_STD)
+    ])
+
+    all_domain_data = read_all_domainnet_data(path_to_data, split=split)
+
+    test_data_paths, test_data_labels = [], []
+    for domain in all_domain_data:
+        paths, labels = all_domain_data[domain]
+        test_data_paths.extend(paths)
+        test_data_labels.extend(labels)
+
+
+    domainnet_test = DomainNet(test_data_paths, test_data_labels, transforms=transform_test)
+    domainnet_test_loader = DataLoader(
+        domainnet_test, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size)
+
+    if client_to_labels is not None:
+        per_client_test_loaders = {}
+        for c_id, c_labels in client_to_labels.items():
+            indices = [i for i, label in enumerate(test_data_labels) if label in c_labels]
+            subset = Subset(domainnet_test, indices)
+            loader = DataLoader(
+                subset,
+                shuffle=shuffle,
+                num_workers=num_workers,
+                batch_size=batch_size,
+                drop_last=False
+            )
+            per_client_test_loaders[c_id] = loader
+
+    return domainnet_test_loader, per_client_test_loaders
+

@@ -149,3 +149,5 @@ replay_tensors/
 # visual and slurm logs
 slurm-*.out
 wandb/
+
+DomainNet/

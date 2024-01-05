@@ -29,7 +29,7 @@ def get_sfl_args():
     parser.add_argument('--num_epoch', type=int, default=200)
     parser.add_argument('--seed', type=int, default=1234)
     parser.add_argument('--num_workers', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=100)
+    parser.add_argument('--batch_size', type=int, default=12)
     parser.add_argument('--data_dir', type=str, default='./data/')
     parser.add_argument('--output_dir', type=str, default='./outputs/')
     parser.add_argument('--lr', type=float, default=0.05, help="server-side model learning rate")
@@ -114,7 +114,7 @@ def get_sfl_args():
 
     args = parser.parse_args()
 
-    dataset_name_list = ["cifar10", "cifar100", "imagenet", "svhn", "stl10", "tinyimagenet", "imagenet12"]
+    dataset_name_list = ["cifar10", "cifar100", "imagenet", "svhn", "stl10", "tinyimagenet", "imagenet12", "domainnet"]
     if args.dataset not in dataset_name_list:
         raise NotImplementedError
 
@@ -261,6 +261,9 @@ def get_sfl_args():
         args.data_size = 224
     elif args.dataset == "imagenet12":
         args.num_class = 12
+        args.data_size = 224
+    elif args.dataset == "domainnet":
+        args.num_class = 345
         args.data_size = 224
     else:
         raise("UNKNOWN DATASET!")
