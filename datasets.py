@@ -1180,6 +1180,7 @@ def generate_domain_net_data(dir_path):
         os.makedirs(test_path)
 
     root = dir_path + "rawdata"
+    os.makedirs(root, exist_ok=TrueK)
 
     domains = ['clipart', 'infograph', 'painting', 'quickdraw', 'real', 'sketch']
     urls = [
@@ -1197,12 +1198,11 @@ def generate_domain_net_data(dir_path):
         zip_path = os.path.join(root, f"{d}.zip")
         extract_path = os.path.join(root, d)
 
-        if not os.path.exists(zip_path):
-            r = requests.get(u, stream=True)
-            with open(zip_path, 'wb') as f:
-                f.write(r.content)
-
         if not os.path.exists(extract_path):
+            if not os.path.exists(zip_path):
+                r = requests.get(u, stream=True)
+                with open(zip_path, 'wb') as f:
+                    f.write(r.content)
             try:
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                     zip_ref.extractall(root)
