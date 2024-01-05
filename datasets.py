@@ -1180,7 +1180,7 @@ def generate_domain_net_data(dir_path):
         os.makedirs(test_path)
 
     root = dir_path + "rawdata"
-    os.makedirs(root, exist_ok=TrueK)
+    os.makedirs(root, exist_ok=True)
 
     domains = ['clipart', 'infograph', 'painting', 'quickdraw', 'real', 'sketch']
     urls = [
