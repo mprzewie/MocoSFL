@@ -3,6 +3,14 @@
 MocoSFL
 '''
 from cmath import inf
+import functools
+from copy import deepcopy
+
+import torch
+# override calls to cuda()
+torch.Tensor.cuda = lambda self, *args, **kwargs: torch.Tensor.cpu(self)
+torch.nn.Module.cuda = lambda self, *args, **kwargs: torch.nn.Module.cpu(self)
+
 import datasets
 from configs import get_sfl_args, set_deterministic
 import torch
@@ -16,8 +24,8 @@ from functions.sflmoco_functions import sflmoco_simulator
 from functions.sfl_functions import client_backward, loss_based_status
 from functions.attack_functions import MIA_attacker, MIA_simulator
 import gc
-from queue_selection import get_queue_matcher
 from utils import get_client_iou_matrix, get_time
+from queue_selection import get_queue_matcher, get_gradient_matcher
 
 VERBOSE = False
 import seaborn as sns
@@ -146,10 +154,27 @@ if args.mlp:
 
     else:
         raise("Unknown version! Please specify the classifier.")
-    global_model.classifier = nn.Sequential(*classifier_list)
-    global_model.classifier.apply(init_weights)
-    global_model.predictor = nn.Sequential(*predictor_list)
-    global_model.predictor.apply(init_weights)
+
+    projector = nn.Sequential(*classifier_list)
+    projector.apply(init_weights)
+    predictor = nn.Sequential(*predictor_list)
+    predictor.apply(init_weights)
+
+    if not args.sep_proj:
+        global_model.classifier = projector
+        global_model.predictor = predictor
+
+    else:
+        assert len(global_model.cloud)==0, f"{len(global_model.cloud)=}, but should be 0!"
+        projectors = []
+        predictors = []
+        for _ in range(args.num_client):
+            projectors.append(deepcopy(projector))
+            predictors.append(deepcopy(predictor))
+
+        global_model.classifier = nn.ModuleList(projectors)
+        global_model.predictor = nn.ModuleList(predictors)
+
 
 
 global_model.merge_classifier_cloud()
@@ -158,6 +183,7 @@ global_model.merge_classifier_cloud()
 criterion = nn.CrossEntropyLoss().cuda()
 
 qmatcher = get_queue_matcher(args)
+gmatcher = get_gradient_matcher(args)
 
 print(qmatcher)
 get_time()
@@ -246,11 +272,29 @@ if not args.resume:
                         pkey = pkey2
 
                     # assert False, (query.shape, pkey.shape)
-                    hidden_query = sfl.c_instance_list[client_id](query)# pass to online
+                    hidden_query = sfl.c_instance_list[client_id](query) # pass to online
                     hidden_query_list[i] = hidden_query
                     with torch.no_grad():
                         hidden_pkey = sfl.c_instance_list[client_id].t_model(pkey).detach() # pass to target
                     hidden_pkey_list[i] = hidden_pkey
+
+                hidden_query_list_pre_projector = hidden_query_list
+                if isinstance(sfl.s_instance.model, nn.ModuleList):
+                    # if separate projectors, pass through them now. we won't do this when computing contrastive loss
+                    for hq in hidden_query_list:
+                        hq.requires_grad=True
+                        hq.retain_grad()
+
+                    hidden_query_list = [
+                        sfl.s_instance.model[i](hq)
+                        for (i, hq) in enumerate(hidden_query_list)
+                    ]
+                    assert isinstance(sfl.s_instance.t_model, nn.ModuleList)
+                    with torch.no_grad():
+                        hidden_pkey_list = [
+                            sfl.s_instance.t_model[i](hk).detach()
+                            for (i, hk) in enumerate(hidden_pkey_list)
+                        ]
 
                 stack_hidden_query = torch.cat(hidden_query_list, dim = 0)
                 stack_hidden_pkey = torch.cat(hidden_pkey_list, dim = 0)
@@ -269,8 +313,9 @@ if not args.resume:
             sfl.s_optimizer.zero_grad()
             #server compute
             loss, gradient, accu = sfl.s_instance.compute(stack_hidden_query, stack_hidden_pkey, pool = pool)
-
-
+            # assert False, (hidden_query_list_pre_projector[0].shape, hidden_query_list[0].shape, hidden_query_list_pre_projector[0].grad)
+            if isinstance(sfl.s_instance.model, nn.ModuleList):
+                gradient =  torch.cat([hq.grad for hq in hidden_query_list_pre_projector], dim = 0)
 
             sfl.s_optimizer.step() # with reduced step, to simulate a large batch size.
 
@@ -283,7 +328,7 @@ if not args.resume:
                     "contrastive/loss/batch": loss,
                     "contrastive/accuracy/batch": accu,
                 },
-                verbose=(batch% 50 == 0 or batch == num_batch - 1)
+                verbose=True #(batch% 50 == 0 or batch == num_batch - 1)
             )
             avg_loss += loss
             avg_accu += accu
@@ -325,7 +370,7 @@ if not args.resume:
                         avg_gan_train_loss += gan_train_loss
                         avg_gan_eval_loss += gan_eval_loss
 
-                #client backward
+                gradient_dict = gmatcher.match_gradient_dict(gradient_dict)
                 client_backward(sfl, pool, gradient_dict)
             else:
                 # (optional) step client scheduler (lower its LR)
@@ -333,7 +378,7 @@ if not args.resume:
 
             gc.collect()
 
-            if batch == num_batch - 1 or (batch % (num_batch//args.avg_freq) == (num_batch//args.avg_freq) - 1):
+            if (batch == num_batch - 1 or (batch % (num_batch//args.avg_freq) == (num_batch//args.avg_freq) - 1)) and (not args.disable_sync):
                 # sync client-side models
                 divergence_metrics = sfl.fedavg(pool, divergence_aware = args.divergence_aware, divergence_measure = args.divergence_measure)
                 if divergence_metrics is not None:

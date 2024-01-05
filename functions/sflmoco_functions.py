@@ -570,7 +570,13 @@ class create_sflmocoserver_instance(create_base_instance):
 
 
     def contrastive_loss(self, query, pkey, pool = None):
-        query_out = self.model(query)
+
+        if not isinstance(self.model, nn.ModuleList):
+            query_out = self.model(query)
+        else:
+            assert len(query.shape) == 2
+            # by this point, embeddings should have been processed by the spearete projection heads and therefore flattened
+            query_out = query
 
         query_out = nn.functional.normalize(query_out, dim = 1)
 
@@ -578,7 +584,11 @@ class create_sflmocoserver_instance(create_base_instance):
 
             pkey_, idx_unshuffle = self._batch_shuffle_single_gpu(pkey)
 
-            pkey_out = self.t_model(pkey_)
+            if not isinstance(self.model, nn.ModuleList):
+                pkey_out = self.t_model(pkey_)
+            else:
+                assert len(pkey_.shape) == 2
+                pkey_out = pkey_
 
             pkey_out = nn.functional.normalize(pkey_out, dim = 1).detach()
 
@@ -616,8 +626,12 @@ class create_sflmocoserver_instance(create_base_instance):
 
         return loss, accu, query_out, pkey_out
 
-    def compute(self, query, pkey, update_momentum = True, enqueue = True, tau = 0.99, pool = None):
-        query.requires_grad=True
+    def compute(
+            self, query: torch.Tensor, pkey: torch.Tensor,
+            update_momentum = True, enqueue = True, tau = 0.99, pool = None
+    ):
+        if not query.requires_grad:
+            query.requires_grad=True
 
         query.retain_grad()
 
@@ -695,6 +709,7 @@ class create_sflmococlient_instance(create_base_instance):
 class create_sflbyol_server_instance(create_sflmocoserver_instance):
     def __init__(self, model, predictor, criterion, args, server_input_size = 1, feature_sharing = True):
         super().__init__(model, criterion, args, server_input_size=server_input_size, feature_sharing=feature_sharing)
+        raise NotImplementedError()
         self.predictor = predictor
 
 
@@ -702,7 +717,7 @@ class create_sflbyol_server_instance(create_sflmocoserver_instance):
         raise NotImplementedError("go BYOL yourself")
 
     def compute(self, query, pkey, update_momentum = True, enqueue = True, tau = 0.99, pool = None):
-        query.requires_grad=True
+        assert query.requires_grad         # query.requires_grad=True
 
         query.retain_grad()
 
