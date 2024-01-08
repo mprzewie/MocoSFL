@@ -999,7 +999,7 @@ def read_all_domainnet_data(dataset_path: str, split: str = "train") -> Dict[
 
     all_data = {}
     class_counts = {}
-    domains = ["clipart", "infograph", "painting", "quickdraw", "real", "sketch"]
+    domains = sorted(["clipart", "infograph", "painting", "quickdraw", "real", "sketch"])
 
     for domain in domains:
         data_paths, data_labels = [], []
@@ -1092,6 +1092,7 @@ def get_domainnet_pairloader(batch_size=16, num_workers=2, shuffle=True, num_cli
     multi_domain_train_data = []
     client_labels = set()
     for i, domain in enumerate(all_domain_data):
+        print(i, domain)
         data_paths, data_labels = all_domain_data[domain]
         client_labels.update(set(data_labels))
         domain_train_data = DomainNetPair(data_paths, data_labels, train_transform)
@@ -1276,30 +1277,34 @@ def get_domainnet_testloader(
 
     all_domain_data = read_all_domainnet_data(path_to_data, split=split)
 
-    test_data_paths, test_data_labels = [], []
-    for domain in all_domain_data:
+    assert len(all_domain_data) == len(client_to_labels), (len(all_domain_data), len(client_to_labels))
+    domain_keys = sorted(all_domain_data.keys())
+
+    all_test_data_paths, all_test_data_labels = [], []
+
+    per_client_test_loaders = dict()
+    for c_id, domain in enumerate(domain_keys):
         paths, labels = all_domain_data[domain]
-        test_data_paths.extend(paths)
-        test_data_labels.extend(labels)
+        assert all([domain in p for p in paths])  # path should contain the name of the current domain
+        all_test_data_paths.extend(paths)
+        all_test_data_labels.extend(labels)
 
+        indices = [i for i, label in enumerate(labels) if label in client_to_labels[c_id]]
+        domain_test_set =  DomainNet(paths, labels, transforms=transform_test)
+        subset = Subset(domain_test_set, indices)
+        per_client_test_loaders[c_id] = DataLoader(
+            subset,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            batch_size=batch_size,
+            drop_last=False
+        )
 
-    domainnet_test = DomainNet(test_data_paths, test_data_labels, transforms=transform_test)
-    domainnet_test_loader = DataLoader(
-        domainnet_test, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size)
+    domainnet_all_test = DomainNet(all_test_data_paths, all_test_data_labels, transforms=transform_test)
+    all_clients_labels = set().union(*client_to_labels.values())
+    all_indices = [i for i, label in enumerate(all_test_data_labels) if label in all_clients_labels]
+    all_subset = Subset(domainnet_all_test, all_indices)
 
-    if client_to_labels is not None:
-        per_client_test_loaders = {}
-        for c_id, c_labels in client_to_labels.items():
-            indices = [i for i, label in enumerate(test_data_labels) if label in c_labels]
-            subset = Subset(domainnet_test, indices)
-            loader = DataLoader(
-                subset,
-                shuffle=shuffle,
-                num_workers=num_workers,
-                batch_size=batch_size,
-                drop_last=False
-            )
-            per_client_test_loaders[c_id] = loader
-
+    domainnet_test_loader = DataLoader(all_subset, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size)
     return domainnet_test_loader, per_client_test_loaders
 
