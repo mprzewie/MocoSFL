@@ -103,6 +103,7 @@ def get_sfl_args():
     parser.add_argument('--mlp', action='store_true', default=False, help="apply MLP head")
     parser.add_argument("--sep-proj", action="store_true", default=False,
                         help="If true, use separate projector and predictor for each client. There must be no layers of server if this is set.")
+    parser.add_argument("--queue-outputs", choices=["proj", "net"], default="proj", help="Which outputs to store in queue? Projector(s) or network?")
 
     parser.add_argument('--aug_plus', action='store_true', default=False, help="apply extra augmentation (Gaussian Blur))")
     parser.add_argument('--cos', action='store_true', default=False, help="use cosannealing LR scheduler")

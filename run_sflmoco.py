@@ -314,6 +314,8 @@ if not args.resume:
 
             sfl.s_optimizer.zero_grad()
             #server compute
+
+            assert False, stack_hidden_query.shape
             loss, gradient, accu = sfl.s_instance.compute(stack_hidden_query, stack_hidden_pkey, pool = pool)
             # assert False, (hidden_query_list_pre_projector[0].shape, hidden_query_list[0].shape, hidden_query_list_pre_projector[0].grad)
             if isinstance(sfl.s_instance.model, nn.ModuleList):

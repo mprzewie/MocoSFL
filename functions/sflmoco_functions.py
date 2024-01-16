@@ -19,14 +19,14 @@ from tqdm import tqdm
 from functions.base_funtions import base_simulator, create_base_instance
 import torchvision.transforms as transforms
 import torch.nn.functional as F
-from models.resnet import init_weights
+from models.resnet import init_weights, ResNet
 from queue_selection import QueueMatcher
 from utils import AverageMeter, accuracy
 import numpy as np
 
 
 class sflmoco_simulator(base_simulator):
-    def __init__(self, model, criterion, train_loader, test_loader, per_client_test_loader, queue_matcher: QueueMatcher, args) -> None:
+    def __init__(self, model: ResNet, criterion, train_loader, test_loader, per_client_test_loader, queue_matcher: QueueMatcher, args) -> None:
         super().__init__(model, criterion, train_loader, test_loader, per_client_test_loader=per_client_test_loader, args=args)
 
         print(f"Clients x {self.num_client}")
@@ -37,12 +37,13 @@ class sflmoco_simulator(base_simulator):
 
         print("Predictor")
         print(model.predictor)
-        
+
         # Create server instances
         if self.model.cloud is not None:
 
             if args.moco_version != "byol":
-                self.s_instance = create_sflmocoserver_instance(
+                # self.s_instance = create_sflmocoserver_instance(
+                self.s_instance = create_sflmocoserver_personalized_instance(
                     model=self.model.cloud,
                     criterion=criterion,
                     args=args,
@@ -638,15 +639,7 @@ class create_sflmocoserver_instance(create_base_instance):
         if update_momentum:
             self.update_moving_average(tau)
 
-        if self.symmetric:
-            loss, accu, query_out, pkey_out = self.contrastive_loss(query, pkey, pool)
-
-            # loss12, accu, q1, k2 = self.contrastive_loss(query, pkey, pool)
-            # loss21, accu, q2, k1 = self.contrastive_loss(pkey, query, pool)
-            # loss = loss12 + loss21
-            # pkey_out = torch.cat([k1, k2], dim = 0)
-        else:
-            loss, accu, query_out, pkey_out = self.contrastive_loss(query, pkey, pool)
+        loss, accu, query_out, pkey_out = self.contrastive_loss(query, pkey, pool)
 
         if enqueue:
             self._dequeue_and_enqueue(pkey_out, pool)
@@ -765,3 +758,38 @@ class create_sflbyol_server_instance(create_sflmocoserver_instance):
         self.model.cpu()
         self.t_model.cpu()
         self.predictor.cpu()
+
+class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
+    def __init__(self, model, criterion, args, queue_matcher: QueueMatcher, server_input_size = 1, feature_sharing = True) -> None:
+        super().__init__(model, criterion, args, queue_matcher, server_input_size, feature_sharing)
+        # TODO osobne projektory
+        # TODO 2 - bez tego dziwnego client classifier merge
+        assert False, model
+        self.criterion = criterion
+        self.t_model = copy.deepcopy(model)
+        self.symmetric = args.symmetric
+        self.batch_size = args.batch_size
+        self.num_client = args.num_client
+        for param_t in self.t_model.parameters():
+            param_t.requires_grad = False  # not update by gradient
+
+        self.K = args.K
+        self.T = args.T
+        self.queue_matcher = queue_matcher
+
+        queue_dim = args.K_dim if args.queue_outputs == "proj" else 512 # TODO hardcoded for R18
+        self.feature_sharing = feature_sharing
+        if self.feature_sharing:
+            self.queue = torch.randn(queue_dim, self.K).cuda()
+            self.queue = nn.functional.normalize(self.queue, dim=0)
+            self.queue_ptr = torch.zeros(1, dtype=torch.long)
+        else:
+            self.K = self.K // self.num_client
+            self.queue = []
+            self.queue_ptr = []
+            for _ in range(self.num_client):
+                queue = torch.randn(queue_dim, self.K).cuda()
+                queue = nn.functional.normalize(queue, dim=0)
+                self.queue.append(queue)
+                self.queue_ptr.append(torch.zeros(1, dtype=torch.long))
+
