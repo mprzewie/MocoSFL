@@ -300,17 +300,19 @@ class ResNet(nn.Module):
             cloud_list.append(self.classifier)
             self.cloud = nn.Sequential(*cloud_list)
         else:
-            assert len(cloud_list) == 0, f"{len(cloud_list)=}, but should be 0"
             self.cloud = nn.ModuleList(
                 [
-                    nn.Sequential(MobView(), proj)
+                    nn.Sequential(*(cloud_list + [MobView(), proj]))
                     for proj in self.classifier
                 ]
             )
 
     def unmerge_classifier_cloud(self):
         self.cloud_classifier_merge = False
-        cloud_list = list(self.cloud.children())
+
+        cloud = self.cloud if not isinstance(self.cloud, nn.ModuleList) else self.cloud[0]
+
+        cloud_list = list(cloud.children())
         orig_cloud_list = []
         for i, module in enumerate(cloud_list):
             if "MobView" in str(module):

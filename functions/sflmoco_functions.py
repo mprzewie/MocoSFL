@@ -92,116 +92,116 @@ class sflmoco_simulator(base_simulator):
         self.data_size = args.data_size
         self.arch = args.arch
 
-    def linear_eval(self, memloader, num_epochs = 100, lr = 3.0, client_id: Optional[int] = None): # Use linear evaluation
-
-        """
-        Run Linear evaluation
-        """
-        assert False, "Use linear_eval_v2 instead!"
-        assert (
-            (memloader is None or client_id is None)
-            and
-            ((memloader is not None) or (client_id is not None))
-        ), f"Exactly one of memloader / client_id must be None. {client_id=}"
-
-        self.cuda()
-        self.eval()  #set to eval mode
-        criterion = nn.CrossEntropyLoss()
-
-        self.model.unmerge_classifier_cloud()
-
-        # if self.data_size == 32:
-        #     data_size_factor = 1
-        # elif self.data_size == 64:
-        #     data_size_factor = 4
-        # elif self.data_size == 96:
-        #     data_size_factor = 9
-        # classifier_list = [nn.Linear(self.K_dim * self.model.expansion, self.num_class)]
-
-        if "ResNet" in self.arch or "resnet" in self.arch:
-            if "resnet" in self.arch:
-                self.arch = "ResNet" + self.arch.split("resnet")[-1]
-            output_dim = 512
-        elif "vgg" in self.arch:
-            output_dim = 512
-        elif "MobileNetV2" in self.arch:
-            output_dim = 1280
-
-        classifier_list = [nn.Linear(output_dim * self.model.expansion, self.num_class)]
-        linear_classifier = nn.Sequential(*classifier_list)
-
-        linear_classifier.apply(init_weights)
-
-        # linear_optimizer = torch.optim.SGD(list(linear_classifier.parameters()), lr=lr, momentum=0.9, weight_decay=1e-4)
-        linear_optimizer = torch.optim.Adam(list(linear_classifier.parameters()))
-        linear_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(linear_optimizer, num_epochs//4)  # learning rate decay 
-
-        linear_classifier.cuda()
-        linear_classifier.train()
-        
-        best_avg_accu = 0.0
-        avg_pool = nn.AdaptiveAvgPool2d((1,1))
-        # Train the linear layer
-
-        train_loader = memloader[0] if memloader is not None else self.client_dataloader[client_id]
-        test_loader = self.validate_loader if memloader is not None else self.per_client_test_loaders[client_id]
-
-        local_model_id = client_id if client_id is not None else 0
-
-        for epoch in range(num_epochs):
-            for input, label in train_loader:
-
-                if client_id is not None:
-                    input = input[0] # we take only one image from the pair
-
-                linear_optimizer.zero_grad()
-                input = input.cuda()
-                label = label.cuda()
-                with torch.no_grad():
-                    output = self.model.local_list[local_model_id](input)
-                    output = self.model.cloud(output)
-                    output = avg_pool(output)
-                    output = output.view(output.size(0), -1)
-                output = linear_classifier(output.detach())
-                loss = criterion(output, label)
-                # loss = loss_xent(output, label)
-                loss.backward()
-                linear_optimizer.step()
-                linear_scheduler.step()
-
-            """
-            Run validation
-            """
-            top1 = AverageMeter()
-            
-            linear_classifier.eval()
-
-            for input, target in test_loader:
-                input = input.cuda()
-                target = target.cuda()
-                with torch.no_grad():
-                    output = self.model.local_list[local_model_id](input)
-                    output = self.model.cloud(output)
-                    output = avg_pool(output)
-                    output = output.view(output.size(0), -1)
-                    output = linear_classifier(output.detach())
-                prec1 = accuracy(output.data, target)[0]
-                top1.update(prec1.item(), input.size(0))
-            linear_classifier.train()
-            avg_accu = top1.avg
-            if avg_accu > best_avg_accu:
-                best_avg_accu = avg_accu
-
-            self.log_metrics({
-                "val_linear/iteration": epoch,
-                f"val_linear/{client_id}/avg": avg_accu,
-                f"val_linear/{client_id}/best": best_avg_accu,
-            })
-            # print(f"{client_id=} Epoch: {epoch}, linear eval accuracy - current: {avg_accu:.2f}, best: {best_avg_accu:.2f}")
-        
-        self.model.merge_classifier_cloud()
-        self.train()  #set back to train mode
-        return best_avg_accu
+    # def linear_eval(self, memloader, num_epochs = 100, lr = 3.0, client_id: Optional[int] = None): # Use linear evaluation
+    #
+    #     """
+    #     Run Linear evaluation
+    #     """
+    #     assert False, "Use linear_eval_v2 instead!"
+    #     assert (
+    #         (memloader is None or client_id is None)
+    #         and
+    #         ((memloader is not None) or (client_id is not None))
+    #     ), f"Exactly one of memloader / client_id must be None. {client_id=}"
+    #
+    #     self.cuda()
+    #     self.eval()  #set to eval mode
+    #     criterion = nn.CrossEntropyLoss()
+    #
+    #     self.model.unmerge_classifier_cloud()
+    #
+    #     # if self.data_size == 32:
+    #     #     data_size_factor = 1
+    #     # elif self.data_size == 64:
+    #     #     data_size_factor = 4
+    #     # elif self.data_size == 96:
+    #     #     data_size_factor = 9
+    #     # classifier_list = [nn.Linear(self.K_dim * self.model.expansion, self.num_class)]
+    #
+    #     if "ResNet" in self.arch or "resnet" in self.arch:
+    #         if "resnet" in self.arch:
+    #             self.arch = "ResNet" + self.arch.split("resnet")[-1]
+    #         output_dim = 512
+    #     elif "vgg" in self.arch:
+    #         output_dim = 512
+    #     elif "MobileNetV2" in self.arch:
+    #         output_dim = 1280
+    #
+    #     classifier_list = [nn.Linear(output_dim * self.model.expansion, self.num_class)]
+    #     linear_classifier = nn.Sequential(*classifier_list)
+    #
+    #     linear_classifier.apply(init_weights)
+    #
+    #     # linear_optimizer = torch.optim.SGD(list(linear_classifier.parameters()), lr=lr, momentum=0.9, weight_decay=1e-4)
+    #     linear_optimizer = torch.optim.Adam(list(linear_classifier.parameters()))
+    #     linear_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(linear_optimizer, num_epochs//4)  # learning rate decay
+    #
+    #     linear_classifier.cuda()
+    #     linear_classifier.train()
+    #
+    #     best_avg_accu = 0.0
+    #     avg_pool = nn.AdaptiveAvgPool2d((1,1))
+    #     # Train the linear layer
+    #
+    #     train_loader = memloader[0] if memloader is not None else self.client_dataloader[client_id]
+    #     test_loader = self.validate_loader if memloader is not None else self.per_client_test_loaders[client_id]
+    #
+    #     local_model_id = client_id if client_id is not None else 0
+    #
+    #     for epoch in range(num_epochs):
+    #         for input, label in train_loader:
+    #
+    #             if client_id is not None:
+    #                 input = input[0] # we take only one image from the pair
+    #
+    #             linear_optimizer.zero_grad()
+    #             input = input.cuda()
+    #             label = label.cuda()
+    #             with torch.no_grad():
+    #                 output = self.model.local_list[local_model_id](input)
+    #                 output = self.model.cloud(output)
+    #                 output = avg_pool(output)
+    #                 output = output.view(output.size(0), -1)
+    #             output = linear_classifier(output.detach())
+    #             loss = criterion(output, label)
+    #             # loss = loss_xent(output, label)
+    #             loss.backward()
+    #             linear_optimizer.step()
+    #             linear_scheduler.step()
+    #
+    #         """
+    #         Run validation
+    #         """
+    #         top1 = AverageMeter()
+    #
+    #         linear_classifier.eval()
+    #
+    #         for input, target in test_loader:
+    #             input = input.cuda()
+    #             target = target.cuda()
+    #             with torch.no_grad():
+    #                 output = self.model.local_list[local_model_id](input)
+    #                 output = self.model.cloud(output)
+    #                 output = avg_pool(output)
+    #                 output = output.view(output.size(0), -1)
+    #                 output = linear_classifier(output.detach())
+    #             prec1 = accuracy(output.data, target)[0]
+    #             top1.update(prec1.item(), input.size(0))
+    #         linear_classifier.train()
+    #         avg_accu = top1.avg
+    #         if avg_accu > best_avg_accu:
+    #             best_avg_accu = avg_accu
+    #
+    #         self.log_metrics({
+    #             "val_linear/iteration": epoch,
+    #             f"val_linear/{client_id}/avg": avg_accu,
+    #             f"val_linear/{client_id}/best": best_avg_accu,
+    #         })
+    #         # print(f"{client_id=} Epoch: {epoch}, linear eval accuracy - current: {avg_accu:.2f}, best: {best_avg_accu:.2f}")
+    #
+    #     self.model.merge_classifier_cloud()
+    #     self.train()  #set back to train mode
+    #     return best_avg_accu
 
     def linear_eval_v2(self, memloader, num_epochs=100, lr=3.0, client_id: Optional[int] = None,  dataset_id: Optional[int] = None, num_ws_to_check=5,):  # Use linear evaluation
         """

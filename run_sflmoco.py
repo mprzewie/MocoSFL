@@ -167,7 +167,7 @@ if args.mlp:
         global_model.predictor = predictor
 
     else:
-        assert len(global_model.cloud)==0, f"{len(global_model.cloud)=}, but should be 0!"
+        # assert len(global_model.cloud)==0, f"{len(global_model.cloud)=}, but should be 0!"
         projectors = []
         predictors = []
         for _ in range(args.num_client):
@@ -475,7 +475,7 @@ for client_id in sfl.per_client_test_loaders.keys():
         client_square_accuracies[client_id, dataset_id] = client_acc
 
 
-heatmap = sns.heatmap(client_square_accuracies, annot=True, fmt='.2f', vmin=0, vmax=100)
+heatmap = sns.heatmap(client_square_accuracies, annot=True, fmt='.2f', vmin=0, vmax=100, annot_kws={"size": 35 / np.sqrt(len(client_square_accuracies))},)
 plt.xlabel("Dataset")
 plt.ylabel("Client")
 
@@ -484,7 +484,7 @@ metrics_test["test_linear/client/square"] = np.mean(client_square_accuracies)
 metrics_test["test_linear/grid"] = wandb.Image(heatmap.get_figure(), caption="Accuracy per task heatmap")
 
 ious = get_client_iou_matrix(client_to_labels=client_to_labels)
-heatmpap = sns.heatmap(ious, annot=True, fmt=".2f")
+heatmpap = sns.heatmap(ious, annot=True, fmt=".2f", vmax=100, annot_kws={"size": 35 / np.sqrt(len(ious))},)
 metrics_test["test_linear/client_ious"] = wandb.Image(heatmpap.get_figure(), caption="Class-wise client IoUs")
 
 
