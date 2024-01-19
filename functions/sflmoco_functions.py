@@ -842,60 +842,55 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
         for q in queries_from_clients:
             s = ui
             e = ui + len(q)
+            ui = e
             unstack_indices.append((s, e))
 
         stack_query_from_cloud = self.avg_pool(self.model(stack_query)).squeeze()
-
 
         with torch.no_grad():
             shuffle_stack_pkey, idx_unshuffle = self._batch_shuffle_single_gpu(stack_pkey)
             shuffle_stack_pkey_from_cloud = self.avg_pool(self.t_model(shuffle_stack_pkey)).squeeze()
             stack_pkey_from_cloud = self._batch_unshuffle_single_gpu(shuffle_stack_pkey_from_cloud, idx_unshuffle)
 
+        unstack_query_from_cloud = [
+            stack_query_from_cloud[s:e]
+            for (s, e) in unstack_indices
+        ]
+        unstack_pkey_from_cloud = [
+            stack_pkey_from_cloud[s:e]
+            for (s, e) in unstack_indices
+        ]
 
+        # TODO - domain-based tokens
+        if isinstance(self.projector, nn.ModuleList):
+            unstack_query_from_projector = [
+                nn.functional.normalize(self.projector[p](uqc), dim=1)
+                for p, uqc in zip(pool, unstack_query_from_cloud)
+            ]
+            stack_query_from_projector = torch.cat(unstack_query_from_projector, dim=0)
+
+            with torch.no_grad():
+                unstack_pkey_from_projector = [
+                    nn.functional.normalize(self.t_projector[p](upc), dim=1)
+                    for p, upc in zip(pool, unstack_pkey_from_cloud)
+                ]
+                stack_pkey_from_projector = torch.cat(unstack_pkey_from_projector, dim=0)
+
+        else:
+            stack_query_from_projector = nn.functional.normalize(self.projector(stack_query_from_cloud), dim=1)
+
+            with torch.no_grad():
+                stack_pkey_from_projector = nn.functional.normalize(self.t_projector(stack_pkey_from_cloud), dim=1)
+
+        l_pos = torch.einsum('nc,nc->n', [stack_query_from_projector, stack_pkey_from_projector]).unsqueeze(-1)
+        pool = range(self.num_client) if pool is None else pool
 
         PERSONALIZED_PROJECTION = self.queue_outputs == "net"
 
         if not PERSONALIZED_PROJECTION:
-            if isinstance(self.projector, nn.ModuleList):
-                unstack_query_from_cloud = [
-                    stack_query_from_cloud[s:e]
-                    for (s, e) in unstack_indices
-                ]
-
-                unstack_query_from_projector = [
-                    nn.functional.normalize(self.projector[p](uqc), dim=1)
-                    for p, uqc in zip(pool, unstack_query_from_cloud)
-                ]
-                stack_query_from_projector = torch.cat(unstack_query_from_projector, dim=0)
-
-                with torch.no_grad():
-                    unstack_pkey_from_cloud = [
-                        stack_pkey_from_cloud[s:e]
-                        for (s, e) in unstack_indices
-                    ]
-                    unstack_pkey_from_projector = [
-                        nn.functional.normalize(self.t_projector[p](upc), dim=1)
-                        for p, upc in zip(pool, unstack_pkey_from_cloud)
-                    ]
-                    stack_pkey_from_projector = torch.cat(unstack_pkey_from_projector, dim=0)
-
-            else:
-                stack_query_from_projector = nn.functional.normalize(self.projector(stack_query_from_cloud), dim=1)
-
-                with torch.no_grad():
-                    stack_pkey_from_projector = nn.functional.normalize(self.t_projector(stack_pkey_from_cloud), dim=1)
-
-            if enqueue:
-                self._dequeue_and_enqueue(stack_pkey_from_projector, pool)
-
-
-            l_pos = torch.einsum('nc,nc->n', [stack_query_from_projector, stack_pkey_from_projector]).unsqueeze(-1)
-
             if self.feature_sharing:
                 l_neg = torch.einsum('nc,ck->nk', [stack_query_from_projector, self.queue.clone().detach()])
             else:
-                pool = range(self.num_client) if pool is None else pool
                 l_neg_list = []
                 matched_queues = self.queue_matcher.match_client_queues(queues=self.queue)
                 for c_id, (s, e) in zip(pool, unstack_indices):
@@ -907,9 +902,35 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
                     ))
                 l_neg = torch.cat(l_neg_list, dim=0)
 
+            if enqueue:
+                self._dequeue_and_enqueue(stack_pkey_from_projector, pool)
         else:
-            raise NotImplementedError()
             matched_queues = self.queue_matcher.match_client_queues(queues=self.queue)
+            assert not self.feature_sharing, "Cannot share features here"
+            l_neg_list = []
+
+            for c_id, (s, e) in zip(pool, unstack_indices):
+                matched_queue_for_client = matched_queues[c_id].T
+                projector_to_use = (
+                    self.t_projector[c_id]
+                    if isinstance(self.t_projector, nn.ModuleList)
+                    else self.t_projector
+                )
+                with torch.no_grad():
+                    projected_queue_for_client = nn.functional.normalize(
+                        projector_to_use(matched_queue_for_client),
+                        dim=1
+                    ).T
+
+                l_neg_list.append(torch.einsum(
+                    'nc,ck->nk', [
+                        stack_query_from_projector[s:e],
+                        projected_queue_for_client.clone().detach()
+                    ]
+                ))
+            l_neg = torch.cat(l_neg_list, dim=0)
+            if enqueue:
+                self._dequeue_and_enqueue(stack_pkey_from_cloud, pool)
 
 
         logits = torch.cat([l_pos, l_neg], dim=1)
