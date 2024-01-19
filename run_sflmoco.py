@@ -22,7 +22,7 @@ from models import resnet
 from models import vgg
 from models import mobilenetv2
 from models.resnet import init_weights
-from functions.sflmoco_functions import sflmoco_simulator
+from functions.sflmoco_functions import sflmoco_simulator, create_sflmocoserver_personalized_instance
 from functions.sfl_functions import client_backward, loss_based_status
 from functions.attack_functions import MIA_attacker, MIA_simulator
 import gc
@@ -179,7 +179,7 @@ if args.mlp:
 
 
 
-global_model.merge_classifier_cloud()
+# global_model.merge_classifier_cloud()
 
 #get loss function
 criterion = nn.CrossEntropyLoss().cuda()
@@ -281,22 +281,6 @@ if not args.resume:
                     hidden_pkey_list[i] = hidden_pkey
 
                 hidden_query_list_pre_projector = hidden_query_list
-                if isinstance(sfl.s_instance.model, nn.ModuleList):
-                    # if separate projectors, pass through them now. we won't do this when computing contrastive loss
-                    for hq in hidden_query_list:
-                        hq.requires_grad=True
-                        hq.retain_grad()
-
-                    hidden_query_list = [
-                        sfl.s_instance.model[i](hq)
-                        for (i, hq) in enumerate(hidden_query_list)
-                    ]
-                    assert isinstance(sfl.s_instance.t_model, nn.ModuleList)
-                    with torch.no_grad():
-                        hidden_pkey_list = [
-                            sfl.s_instance.t_model[i](hk).detach()
-                            for (i, hk) in enumerate(hidden_pkey_list)
-                        ]
 
                 stack_hidden_query = torch.cat(hidden_query_list, dim = 0)
                 stack_hidden_pkey = torch.cat(hidden_pkey_list, dim = 0)
@@ -315,8 +299,16 @@ if not args.resume:
             sfl.s_optimizer.zero_grad()
             #server compute
 
-            assert False, stack_hidden_query.shape
-            loss, gradient, accu = sfl.s_instance.compute(stack_hidden_query, stack_hidden_pkey, pool = pool)
+            if isinstance(sfl.s_instance, create_sflmocoserver_personalized_instance):
+                loss, gradient, accu = sfl.s_instance.compute(
+                    hidden_query_list, hidden_pkey_list, pool=pool
+                )
+            else:
+                loss, gradient, accu = sfl.s_instance.compute(
+                    stack_hidden_query, stack_hidden_pkey,
+                    pool = pool
+                )
+
             # assert False, (hidden_query_list_pre_projector[0].shape, hidden_query_list[0].shape, hidden_query_list_pre_projector[0].grad)
             if isinstance(sfl.s_instance.model, nn.ModuleList):
                 gradient =  torch.cat([hq.grad for hq in hidden_query_list_pre_projector], dim = 0)

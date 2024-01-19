@@ -26,8 +26,8 @@ from collections import defaultdict
 
 class base_simulator:
     def __init__(self, model: ResNet, criterion, train_loader, test_loader, per_client_test_loader, args) -> None:
-        if not model.cloud_classifier_merge:
-            model.merge_classifier_cloud()
+        # if not model.cloud_classifier_merge:
+        #     model.merge_classifier_cloud()
         model_log_file = args.output_dir + '/output.log'
 
         maybe_setup_wandb(args.output_dir, args=args)

@@ -292,6 +292,7 @@ class ResNet(nn.Module):
         return self.forward(x, client_id)
 
     def merge_classifier_cloud(self):
+        assert False, "not allowed"
         self.cloud_classifier_merge = True
         cloud_list = list(self.cloud.children())
 
@@ -308,6 +309,7 @@ class ResNet(nn.Module):
             )
 
     def unmerge_classifier_cloud(self):
+        assert False, "not allowed"
         self.cloud_classifier_merge = False
 
         cloud = self.cloud if not isinstance(self.cloud, nn.ModuleList) else self.cloud[0]
