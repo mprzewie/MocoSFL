@@ -57,7 +57,7 @@ class sflmoco_simulator(base_simulator):
                     feature_sharing=args.feature_sharing,
                     queue_matcher=queue_matcher
                 )
-                params_to_optimize = list(self.s_instance.model.parameters())
+                params_to_optimize = list(self.s_instance.model.parameters()) +  list(self.s_instance.projector.parameters())
             else:
                 self.s_instance = create_sflbyol_server_instance(
                     model=self.model.cloud,
