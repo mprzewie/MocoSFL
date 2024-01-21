@@ -111,7 +111,7 @@ def get_sfl_args():
 
     parser.add_argument("--gmatching", type=str, choices=["noop", "oracle-most-similar"], default="noop")
     parser.add_argument("--gmatching-ngrads", type=int, default=0)
-
+    parser.add_argument("--impl", type=str, choices=["old", "new"], default="old")
 
     args = parser.parse_args()
 
@@ -159,6 +159,8 @@ def get_sfl_args():
         else:
             args.client_sample_ratio = 1.0
 
+    if args.queue_outputs == "net":
+        assert args.K_dim == 512, "when maintaining the queue of resnet outputs, queue size should be equal to resnet output size"
     if args.bottleneck_option == "None":
         args.adds_bottleneck = False
     else:

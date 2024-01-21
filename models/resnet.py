@@ -241,7 +241,7 @@ class ResNet(nn.Module):
     '''
     ResNet model 
     '''
-    def __init__(self, feature, expansion = 1, num_client = 1, num_class = 10, input_size = 32):
+    def __init__(self, feature, expansion = 1, num_client = 1, num_class = 10, input_size = 32, merge_unmerge_allowed: bool = True):
         super(ResNet, self).__init__()
         self.current_client = 0
         self.num_client = num_client
@@ -268,6 +268,7 @@ class ResNet(nn.Module):
         self.classifier.apply(init_weights)
 
         self.avg_pool = nn.AdaptiveAvgPool2d((1,1))
+        self.merge_unmerge_allowed = merge_unmerge_allowed
     def forward(self, x, client_id = 0):
         if self.cloud_classifier_merge:
             x = self.local_list[client_id](x)
@@ -292,7 +293,9 @@ class ResNet(nn.Module):
         return self.forward(x, client_id)
 
     def merge_classifier_cloud(self):
-        assert False, "not allowed"
+        if not self.merge_unmerge_allowed:
+            print("MERGE UNMERGE IGNORED")
+            return
         self.cloud_classifier_merge = True
         cloud_list = list(self.cloud.children())
 
@@ -309,7 +312,10 @@ class ResNet(nn.Module):
             )
 
     def unmerge_classifier_cloud(self):
-        assert False, "not allowed"
+        if not self.merge_unmerge_allowed:
+            print("MERGE UNMERGE IGNORED")
+            return
+
         self.cloud_classifier_merge = False
 
         cloud = self.cloud if not isinstance(self.cloud, nn.ModuleList) else self.cloud[0]
@@ -511,11 +517,11 @@ def make_layers(block, layer_list, cutting_layer, adds_bottleneck = False, bottl
 
     return local, cloud
 
-def ResNet18(cutting_layer, num_client = 1, num_class = 10, adds_bottleneck = False, bottleneck_option = "C8S1", batch_norm=True, group_norm = False, input_size = 32, c_residual = True, WS = True):
+def ResNet18(cutting_layer, num_client = 1, num_class = 10, adds_bottleneck = False, bottleneck_option = "C8S1", batch_norm=True, group_norm = False, input_size = 32, c_residual = True, WS = True, merge_unmerge_allowed=True):
     if not group_norm:
-        return ResNet(make_layers(BasicBlock, [2, 2, 2, 2], cutting_layer, adds_bottleneck = adds_bottleneck, bottleneck_option = bottleneck_option, input_size = input_size, residual = c_residual, WS = WS), num_client = num_client, num_class = num_class, input_size = input_size)
+        return ResNet(make_layers(BasicBlock, [2, 2, 2, 2], cutting_layer, adds_bottleneck = adds_bottleneck, bottleneck_option = bottleneck_option, input_size = input_size, residual = c_residual, WS = WS), num_client = num_client, num_class = num_class, input_size = input_size, merge_unmerge_allowed=merge_unmerge_allowed)
     else:
-        return ResNet(make_layers(BasicBlock_gn, [2, 2, 2, 2], cutting_layer, adds_bottleneck = adds_bottleneck, bottleneck_option = bottleneck_option, group_norm = group_norm, input_size = input_size, residual = c_residual, WS = WS), num_client = num_client, num_class = num_class, input_size = input_size)
+        return ResNet(make_layers(BasicBlock_gn, [2, 2, 2, 2], cutting_layer, adds_bottleneck = adds_bottleneck, bottleneck_option = bottleneck_option, group_norm = group_norm, input_size = input_size, residual = c_residual, WS = WS), num_client = num_client, num_class = num_class, input_size = input_size,merge_unmerge_allowed=merge_unmerge_allowed)
 
 def ResNet34(cutting_layer, num_client = 1, num_class = 10, adds_bottleneck = False, bottleneck_option = "C8S1", batch_norm=True, group_norm = False, input_size = 32, c_residual = True, WS = True):
     if not group_norm:

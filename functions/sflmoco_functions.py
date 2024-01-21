@@ -47,17 +47,29 @@ class sflmoco_simulator(base_simulator):
         if self.model.cloud is not None:
 
             if args.moco_version != "byol":
-                # self.s_instance = create_sflmocoserver_instance(
-                self.s_instance = create_sflmocoserver_personalized_instance(
-                    model=self.model.cloud,
-                    projector=self.model.classifier,
-                    criterion=criterion,
-                    args=args,
-                    server_input_size=self.model.get_smashed_data_size(1, args.data_size),
-                    feature_sharing=args.feature_sharing,
-                    queue_matcher=queue_matcher
-                )
-                params_to_optimize = list(self.s_instance.model.parameters()) +  list(self.s_instance.projector.parameters())
+                server_input_size = self.model.get_smashed_data_size(1, args.data_size)
+                if args.impl == "new":
+                    self.s_instance = create_sflmocoserver_personalized_instance(
+                        model=self.model.cloud,
+                        projector=self.model.classifier,
+                        criterion=criterion,
+                        args=args,
+                        server_input_size=server_input_size,
+                        feature_sharing=args.feature_sharing,
+                        queue_matcher=queue_matcher
+                    )
+                    params_to_optimize = list(self.s_instance.model.parameters()) +  list(self.s_instance.projector.parameters())
+                else:
+                    # TODO deprecated, left for reference, doesn't support all functionalities of the new impl
+                    self.s_instance = create_sflmocoserver_instance(
+                        model=self.model.cloud,
+                        criterion=criterion,
+                        args=args,
+                        server_input_size=server_input_size,
+                        feature_sharing=args.feature_sharing,
+                        queue_matcher=queue_matcher
+                    )
+                    params_to_optimize = list(self.s_instance.model.parameters())
             else:
                 self.s_instance = create_sflbyol_server_instance(
                     model=self.model.cloud,
@@ -70,12 +82,12 @@ class sflmoco_simulator(base_simulator):
                 params_to_optimize = list(self.s_instance.model.parameters()) + list(self.s_instance.predictor.parameters())
 
             self.s_optimizer = torch.optim.SGD(params_to_optimize, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-            
+
             if args.cos:
-                self.s_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.s_optimizer, self.num_epoch)  # learning rate decay 
+                self.s_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.s_optimizer, self.num_epoch)  # learning rate decay
             else:
                 milestones = [int(0.6*self.num_epoch), int(0.8*self.num_epoch)]
-                self.s_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.s_optimizer, milestones=milestones, gamma=0.1)  # learning rate decay 
+                self.s_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.s_optimizer, milestones=milestones, gamma=0.1)  # learning rate decay
 
         # Create client instances
         self.c_instance_list = []
@@ -85,7 +97,7 @@ class sflmoco_simulator(base_simulator):
         self.c_optimizer_list = [None for i in range(args.num_client)]
         for i in range(args.num_client):
             self.c_optimizer_list[i] = torch.optim.SGD(list(self.c_instance_list[i].model.parameters()), lr=args.c_lr, momentum=args.momentum, weight_decay=args.weight_decay)
-        
+
         self.c_scheduler_list = [None for i in range(args.num_client)]
         if args.cos:
             for i in range(args.num_client):
@@ -363,7 +375,7 @@ class sflmoco_simulator(base_simulator):
         # linear_optimizer = torch.optim.SGD(list(semi_classifier.parameters()), lr=lr, momentum=0.9, weight_decay=1e-4)
         linear_optimizer = torch.optim.Adam(list(semi_classifier.parameters()), lr=1e-3) # as in divergence-aware
         milestones = [int(0.6*num_epochs), int(0.8*num_epochs)]
-        linear_scheduler = torch.optim.lr_scheduler.MultiStepLR(linear_optimizer, milestones=milestones, gamma=0.1)  # learning rate decay 
+        linear_scheduler = torch.optim.lr_scheduler.MultiStepLR(linear_optimizer, milestones=milestones, gamma=0.1)  # learning rate decay
 
         semi_classifier.cuda()
         semi_classifier.train()
@@ -387,12 +399,12 @@ class sflmoco_simulator(base_simulator):
                 loss.backward()
                 linear_optimizer.step()
                 linear_scheduler.step()
-            
+
             """
             Run validation
             """
             top1 = AverageMeter()
-            
+
             semi_classifier.eval()
 
             for input, target in self.validate_loader:
@@ -413,7 +425,7 @@ class sflmoco_simulator(base_simulator):
             if avg_accu > best_avg_accu:
                 best_avg_accu = avg_accu
             print(f"Epoch: {epoch}, linear eval accuracy - current: {avg_accu:.2f}, best: {best_avg_accu:.2f}")
-        
+
         self.model.merge_classifier_cloud()
         self.train()  #set back to train mode
         return best_avg_accu
@@ -444,7 +456,7 @@ class sflmoco_simulator(base_simulator):
                     data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
                     feature = self.model(data)
                     feature = F.normalize(feature, dim=1)
-                    
+
                     pred_labels = knn_predict(feature, feature_bank, feature_labels, classes, 200, 0.1)
 
                     total_num += data.size(0)
@@ -509,7 +521,7 @@ class create_sflmocoserver_instance(create_base_instance):
 
     def __call__(self, input):
         return self.forward(input)
-    
+
     def forward(self, input):
         output = self.model(input)
         return output
@@ -605,7 +617,7 @@ class create_sflmocoserver_instance(create_base_instance):
             pkey_out = self._batch_unshuffle_single_gpu(pkey_out, idx_unshuffle)
 
         l_pos = torch.einsum('nc,nc->n', [query_out, pkey_out]).unsqueeze(-1)
-        
+
         if self.feature_sharing:
             l_neg = torch.einsum('nc,ck->nk', [query_out, self.queue.clone().detach()])
 
@@ -627,7 +639,7 @@ class create_sflmocoserver_instance(create_base_instance):
         logits = torch.cat([l_pos, l_neg], dim=1)
 
         logits /= self.T
-        
+
         labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
 
         loss = self.criterion(logits, labels)
@@ -641,7 +653,7 @@ class create_sflmocoserver_instance(create_base_instance):
             update_momentum = True, enqueue = True, tau = 0.99, pool = None
     ):
         if not query.requires_grad:
-            query.requires_grad=True
+            query.requires_grad = True
 
         query.retain_grad()
 
@@ -657,18 +669,18 @@ class create_sflmocoserver_instance(create_base_instance):
 
         if query.grad is not None:
             query.grad.zero_()
-        
+
         # loss.backward(retain_graph = True)
         loss.backward()
 
         gradient = query.grad.detach().clone() # get gradient, the -1 is important, since updates are added to the weights in cpp.
 
         return error, gradient, accu[0]
-    
+
     def cuda(self):
         self.model.cuda()
         self.t_model.cuda()
-    
+
     def cpu(self):
         self.model.cpu()
         self.t_model.cpu()
@@ -680,7 +692,7 @@ class create_sflmococlient_instance(create_base_instance):
         self.t_model = copy.deepcopy(model)
         for param_t in self.t_model.parameters():
             param_t.requires_grad = False  # not update by gradient
-    
+
     def __call__(self, input):
         return self.forward(input)
 
@@ -698,11 +710,11 @@ class create_sflmococlient_instance(create_base_instance):
         tau = 0.99 # default value in moco
         for online, target in zip(self.model.parameters(), self.t_model.parameters()):
             target.data = tau * target.data + (1 - tau) * online.data
-    
+
     def cuda(self):
         self.model.cuda()
         self.t_model.cuda()
-    
+
     def cpu(self):
         self.model.cpu()
         self.t_model.cpu()
@@ -742,8 +754,8 @@ class create_sflbyol_server_instance(create_sflmocoserver_instance):
                 pkey_, idx_unshuffle = self._batch_shuffle_single_gpu(pkey)
                 pkey_out = self.t_model(pkey_)
                 pkey_out = self._batch_unshuffle_single_gpu(pkey_out, idx_unshuffle)
-            
-            
+
+
             loss = -2 * F.cosine_similarity(query_out_pred, pkey_out.detach(), dim=-1).mean()
 
 
@@ -769,53 +781,21 @@ class create_sflbyol_server_instance(create_sflmocoserver_instance):
         self.predictor.cpu()
 
 class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
-    def __init__(self, model, projector, criterion, args, queue_matcher: QueueMatcher, server_input_size = 1, feature_sharing = True) -> None:
+    def __init__(self, model, projector, criterion, args, queue_matcher: QueueMatcher, server_input_size = 1, feature_sharing = True):
         super().__init__(model, criterion, args, queue_matcher, server_input_size, feature_sharing)
-        # TODO osobne projektory
-        # TODO 2 - bez tego dziwnego client classifier merge
         self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         self.projector = projector
-        self.criterion = criterion
-        self.t_model = copy.deepcopy(model)
         self.t_projector = copy.deepcopy(projector)
-
-        self.symmetric = args.symmetric
-        self.batch_size = args.batch_size
-        self.num_client = args.num_client
-        for param_t in self.t_model.parameters():
-            param_t.requires_grad = False  # not update by gradient
-
-        self.K = args.K
-        self.T = args.T
-        self.queue_matcher = queue_matcher
         self.queue_outputs = args.queue_outputs
 
 
-        queue_dim = args.K_dim if self.queue_outputs == "proj" else 512 # TODO hardcoded for R18
-        self.feature_sharing = feature_sharing
-        if self.feature_sharing:
-            self.queue = torch.randn(queue_dim, self.K).cuda()
-            self.queue = nn.functional.normalize(self.queue, dim=0)
-            self.queue_ptr = torch.zeros(1, dtype=torch.long)
-        else:
-            self.K = self.K // self.num_client
-            self.queue = []
-            self.queue_ptr = []
-            for _ in range(self.num_client):
-                queue = torch.randn(queue_dim, self.K).cuda()
-                queue = nn.functional.normalize(queue, dim=0)
-                self.queue.append(queue)
-                self.queue_ptr.append(torch.zeros(1, dtype=torch.long))
-
     def cuda(self):
-        self.model.cuda()
-        self.t_model.cuda()
+        super().cuda()
         self.projector.cuda()
         self.t_projector.cuda()
 
     def cpu(self):
-        self.model.cpu()
-        self.t_model.cpu()
+        super().cpu()
         self.projector.cpu()
         self.t_projector.cpu()
 
@@ -951,6 +931,7 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
 
         return error, gradients, accu[0]
 
-
-
-
+    def update_moving_average(self, tau: float=0.99):
+        super().update_moving_average(tau=tau)
+        for online, target in zip(self.projector.parameters(), self.t_projector.parameters()):
+            target.data = tau * target.data + (1 - tau) * online.data

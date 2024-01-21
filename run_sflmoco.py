@@ -2,6 +2,7 @@
 '''
 MocoSFL
 '''
+import random
 from cmath import inf
 import functools
 from copy import deepcopy
@@ -122,7 +123,7 @@ elif "MobileNetV2" in args.arch:
 
 #get model - use a larger classifier, as in Zhuang et al. Divergence-aware paper
 global_model = create_arch(cutting_layer=args.cutlayer, num_client = args.num_client, num_class=args.K_dim, group_norm=True, input_size= args.data_size,
-                             adds_bottleneck=args.adds_bottleneck, bottleneck_option=args.bottleneck_option, c_residual = args.c_residual, WS = args.WS)
+                             adds_bottleneck=args.adds_bottleneck, bottleneck_option=args.bottleneck_option, c_residual = args.c_residual, WS = args.WS, merge_unmerge_allowed=args.impl=="old")
 
 get_time()
 predictor_list = []
@@ -179,7 +180,7 @@ if args.mlp:
 
 
 
-# global_model.merge_classifier_cloud()
+global_model.merge_classifier_cloud()
 
 #get loss function
 criterion = nn.CrossEntropyLoss().cuda()
