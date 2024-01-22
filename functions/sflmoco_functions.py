@@ -48,28 +48,32 @@ class sflmoco_simulator(base_simulator):
 
             if args.moco_version != "byol":
                 server_input_size = self.model.get_smashed_data_size(1, args.data_size)
-                if args.impl == "new":
-                    self.s_instance = create_sflmocoserver_personalized_instance(
-                        model=self.model.cloud,
-                        projector=self.model.classifier,
-                        criterion=criterion,
-                        args=args,
-                        server_input_size=server_input_size,
-                        feature_sharing=args.feature_sharing,
-                        queue_matcher=queue_matcher
-                    )
-                    params_to_optimize = list(self.s_instance.model.parameters()) +  list(self.s_instance.projector.parameters())
-                else:
-                    # TODO deprecated, left for reference, doesn't support all functionalities of the new impl
-                    self.s_instance = create_sflmocoserver_instance(
-                        model=self.model.cloud,
-                        criterion=criterion,
-                        args=args,
-                        server_input_size=server_input_size,
-                        feature_sharing=args.feature_sharing,
-                        queue_matcher=queue_matcher
-                    )
-                    params_to_optimize = list(self.s_instance.model.parameters())
+
+                self.s_instance = create_sflmocoserver_personalized_instance(
+                    model=self.model.cloud,
+                    projector=self.model.classifier,
+                    criterion=criterion,
+                    args=args,
+                    server_input_size=server_input_size,
+                    feature_sharing=args.feature_sharing,
+                    queue_matcher=queue_matcher
+                )
+                params_to_optimize = (
+                        list(self.s_instance.model.parameters()) +
+                        list(self.s_instance.projector.parameters()) +
+                        [self.s_instance.domain_tokens]
+                )
+
+                # # TODO deprecated, left for reference, doesn't support all functionalities of the new impl
+                # self.s_instance = create_sflmocoserver_instance(
+                #     model=self.model.cloud,
+                #     criterion=criterion,
+                #     args=args,
+                #     server_input_size=server_input_size,
+                #     feature_sharing=args.feature_sharing,
+                #     queue_matcher=queue_matcher
+                # )
+                # params_to_optimize = list(self.s_instance.model.parameters())
             else:
                 self.s_instance = create_sflbyol_server_instance(
                     model=self.model.cloud,
@@ -786,18 +790,25 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
         self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         self.projector = projector
         self.t_projector = copy.deepcopy(projector)
-        self.queue_outputs = args.queue_outputs
+        self.projection_space = args.projection_space
+
+        self.domain_tokens = nn.Parameter(
+            torch.randn(args.num_client, args.domain_tokens_shape).cuda()
+        )
+        self.domain_tokens_injection = args.domain_tokens_injection
 
 
     def cuda(self):
         super().cuda()
         self.projector.cuda()
         self.t_projector.cuda()
+        self.domain_tokens.cuda()
 
     def cpu(self):
         super().cpu()
         self.projector.cpu()
         self.t_projector.cpu()
+        self.domain_tokens.cpu()
 
     def forward(self, input):
         raise NotImplementedError("forward")
@@ -841,33 +852,55 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
             for (s, e) in unstack_indices
         ]
 
+        unstack_domain_tokens = [
+            self.domain_tokens[p].unsqueeze(0).repeat(len(uqc), 1)
+            for p, uqc in zip(pool, unstack_query_from_cloud)
+        ]
+
+        unstack_query_from_cloud_joined_with_domain = [
+            self.join_image_and_domain_embeddings(image_embeddings=uqc, domain_embeddings=dt)
+            for uqc, dt in zip(unstack_query_from_cloud, unstack_domain_tokens)
+        ]
+
+        unstack_pkey_from_cloud_joined_with_domain = [
+            self.join_image_and_domain_embeddings(image_embeddings=upc, domain_embeddings=dt)
+            for upc, dt in zip(unstack_pkey_from_cloud, unstack_domain_tokens)
+        ]
+
+        stack_query_from_cloud_joined_with_domain = torch.cat(unstack_query_from_cloud_joined_with_domain, dim=0)
+        stack_pkey_from_cloud_joined_with_domain = torch.cat(unstack_pkey_from_cloud_joined_with_domain, dim=0)
+
         # TODO - domain-based tokens
         if isinstance(self.projector, nn.ModuleList):
             unstack_query_from_projector = [
                 nn.functional.normalize(self.projector[p](uqc), dim=1)
-                for p, uqc in zip(pool, unstack_query_from_cloud)
+                for p, uqc in zip(pool, unstack_query_from_cloud_joined_with_domain)
             ]
             stack_query_from_projector = torch.cat(unstack_query_from_projector, dim=0)
 
             with torch.no_grad():
                 unstack_pkey_from_projector = [
                     nn.functional.normalize(self.t_projector[p](upc), dim=1)
-                    for p, upc in zip(pool, unstack_pkey_from_cloud)
+                    for p, upc in zip(pool, unstack_pkey_from_cloud_joined_with_domain)
                 ]
                 stack_pkey_from_projector = torch.cat(unstack_pkey_from_projector, dim=0)
 
         else:
-            stack_query_from_projector = nn.functional.normalize(self.projector(stack_query_from_cloud), dim=1)
+            stack_query_from_projector = nn.functional.normalize(
+                self.projector(stack_query_from_cloud_joined_with_domain),
+                dim=1
+            )
 
             with torch.no_grad():
-                stack_pkey_from_projector = nn.functional.normalize(self.t_projector(stack_pkey_from_cloud), dim=1)
+                stack_pkey_from_projector = nn.functional.normalize(
+                    self.t_projector(stack_pkey_from_cloud_joined_with_domain),
+                    dim=1
+                )
 
         l_pos = torch.einsum('nc,nc->n', [stack_query_from_projector, stack_pkey_from_projector]).unsqueeze(-1)
         pool = range(self.num_client) if pool is None else pool
 
-        PERSONALIZED_PROJECTION = self.queue_outputs == "net"
-
-        if not PERSONALIZED_PROJECTION:
+        if not self.projection_space == "common":
             if self.feature_sharing:
                 l_neg = torch.einsum('nc,ck->nk', [stack_query_from_projector, self.queue.clone().detach()])
             else:
@@ -884,6 +917,7 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
 
             if enqueue:
                 self._dequeue_and_enqueue(stack_pkey_from_projector, pool)
+                # in queue we keep joint projected representations of images and their respective domains
         else:
             matched_queues = self.queue_matcher.match_client_queues(queues=self.queue)
             assert not self.feature_sharing, "Cannot share features here"
@@ -891,6 +925,10 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
 
             for c_id, (s, e) in zip(pool, unstack_indices):
                 matched_queue_for_client = matched_queues[c_id].T
+                domain_tokens_for_queue = self.domain_tokens[c_id].usqueeze(0).repeat(len(matched_queue_for_client))
+                matched_queue_for_client_joined_with_domain = self.join_image_and_domain_embeddings(
+                    image_embeddings=matched_queue_for_client, domain_embeddings=domain_tokens_for_queue
+                )
                 projector_to_use = (
                     self.t_projector[c_id]
                     if isinstance(self.t_projector, nn.ModuleList)
@@ -898,7 +936,7 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
                 )
                 with torch.no_grad():
                     projected_queue_for_client = nn.functional.normalize(
-                        projector_to_use(matched_queue_for_client),
+                        projector_to_use(matched_queue_for_client_joined_with_domain),
                         dim=1
                     ).T
 
@@ -911,6 +949,7 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
             l_neg = torch.cat(l_neg_list, dim=0)
             if enqueue:
                 self._dequeue_and_enqueue(stack_pkey_from_cloud, pool)
+                # in queue we keep representations of images *without* domains, so that we can personalize them during projection
 
 
         logits = torch.cat([l_pos, l_neg], dim=1)
@@ -935,3 +974,21 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
         super().update_moving_average(tau=tau)
         for online, target in zip(self.projector.parameters(), self.t_projector.parameters()):
             target.data = tau * target.data + (1 - tau) * online.data
+
+
+    def join_image_and_domain_embeddings(self, image_embeddings: torch.Tensor, domain_embeddings: torch.Tensor) -> torch.Tensor:
+        if self.domain_tokens_injection == "none":
+            return image_embeddings
+
+        if self.domain_tokens_injection == "add":
+            assert image_embeddings.shape == domain_embeddings.shape
+            return image_embeddings + domain_embeddings
+
+        if self.domain_tokens_injection == "cat":
+            assert len(image_embeddings) == len(domain_embeddings)
+            return torch.cat([image_embeddings, domain_embeddings], dim=1)
+
+        raise NotImplementedError(self.domain_tokens_injection)
+
+
+

@@ -103,7 +103,6 @@ def get_sfl_args():
     parser.add_argument('--mlp', action='store_true', default=False, help="apply MLP head")
     parser.add_argument("--sep-proj", action="store_true", default=False,
                         help="If true, use separate projector and predictor for each client. There must be no layers of server if this is set.")
-    parser.add_argument("--queue-outputs", choices=["proj", "net"], default="proj", help="Which outputs to store in queue? Projector(s) or network?")
 
     parser.add_argument('--aug_plus', action='store_true', default=False, help="apply extra augmentation (Gaussian Blur))")
     parser.add_argument('--cos', action='store_true', default=False, help="use cosannealing LR scheduler")
@@ -111,7 +110,11 @@ def get_sfl_args():
 
     parser.add_argument("--gmatching", type=str, choices=["noop", "oracle-most-similar"], default="noop")
     parser.add_argument("--gmatching-ngrads", type=int, default=0)
-    parser.add_argument("--impl", type=str, choices=["old", "new"], default="old")
+
+    parser.add_argument("--projection-space", type=str, default="common", choices=["personalized"])
+    parser.add_argument("--domain-tokens-injection", type=str, choices=["none", "cat", "add"])
+    parser.add_argument("--domain-tokens-shape", type=int, default=64)
+
 
     args = parser.parse_args()
 
@@ -159,8 +162,12 @@ def get_sfl_args():
         else:
             args.client_sample_ratio = 1.0
 
-    if args.queue_outputs == "net":
-        assert args.K_dim == 512, "when maintaining the queue of resnet outputs, queue size should be equal to resnet output size"
+    if args.projection_space=="personalized":
+        assert args.K_dim == 512, "With personalized projection space, I will maintain the queue of resnet outputs. Queue size should be equal to resnet output size (512)"
+
+    if args.domain_tokens_injection == "add":
+        assert args.domain_tokens_shape == 512, f"When, {args.domain_tokens_injection=}, their shape must match the shape of ResNet output (512)"
+
     if args.bottleneck_option == "None":
         args.adds_bottleneck = False
     else:

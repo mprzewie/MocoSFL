@@ -123,26 +123,32 @@ elif "MobileNetV2" in args.arch:
 
 #get model - use a larger classifier, as in Zhuang et al. Divergence-aware paper
 global_model = create_arch(cutting_layer=args.cutlayer, num_client = args.num_client, num_class=args.K_dim, group_norm=True, input_size= args.data_size,
-                             adds_bottleneck=args.adds_bottleneck, bottleneck_option=args.bottleneck_option, c_residual = args.c_residual, WS = args.WS, merge_unmerge_allowed=args.impl=="old")
+                             adds_bottleneck=args.adds_bottleneck, bottleneck_option=args.bottleneck_option, c_residual = args.c_residual, WS = args.WS, merge_unmerge_allowed=False)
 
 get_time()
 predictor_list = []
 
+projector_input_dim = output_dim * global_model.expansion
+
+if args.domain_tokens_injection == "cat":
+    projector_input_dim = projector_input_dim + args.domain_tokens_shape
+
+
 if args.mlp:
     if args.moco_version == "largeV2": # This one uses a larger classifier, same as in Zhuang et al. Divergence-aware paper
-        classifier_list = [nn.Linear(output_dim * global_model.expansion, 4096),
+        classifier_list = [nn.Linear(projector_input_dim, 4096),
                         nn.BatchNorm1d(4096),
                         nn.ReLU(True),
                         nn.Linear(4096, args.K_dim)]
     elif "V2" in args.moco_version:
-        classifier_list = [nn.Linear(output_dim * global_model.expansion, args.K_dim * global_model.expansion),
+        classifier_list = [nn.Linear(projector_input_dim, args.K_dim * global_model.expansion),
                         nn.ReLU(True),
                         nn.Linear(args.K_dim * global_model.expansion, args.K_dim)]
 
     elif args.moco_version == "byol":
         projector_h_size = 4096
         classifier_list = [
-            nn.Linear(output_dim * global_model.expansion, projector_h_size),
+            nn.Linear(projector_input_dim, projector_h_size),
             nn.BatchNorm1d(projector_h_size),
             nn.ReLU(True),
             nn.Linear(projector_h_size, args.K_dim) # should be 256 in case of BYOL
