@@ -111,7 +111,7 @@ def get_sfl_args():
     parser.add_argument("--gmatching", type=str, choices=["noop", "oracle-most-similar"], default="noop")
     parser.add_argument("--gmatching-ngrads", type=int, default=0)
 
-    parser.add_argument("--projection-space", type=str, default="common", choices=["personalized"])
+    parser.add_argument("--projection-space", type=str, default="common", choices=["common", "personalized"])
     parser.add_argument("--domain-tokens-injection", type=str, choices=["none", "cat", "add"], default="none")
     parser.add_argument("--domain-tokens-shape", type=int, default=64)
 
