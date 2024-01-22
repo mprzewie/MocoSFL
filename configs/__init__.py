@@ -188,6 +188,8 @@ def get_sfl_args():
     else:
         args.c_residual = True
 
+    assert args.moco_version == "V2"
+
     '''Pre-fix moco version settings '''
     if args.moco_version == "V1":
         args.mlp = False
@@ -205,9 +207,9 @@ def get_sfl_args():
     elif args.moco_version == "V2":
         args.mlp = True # use extra MLP head
         args.cos = True # set cos annearling learning rate decay to true
-        args.K_dim = 1024
+        args.K_dim = 1024 if args.projection_space == "common" else 512
         args.pairloader_option = "mocov2"
-        args.symmetric = True #False #True
+        args.symmetric = True
         args.CLR_option = "cos"
     elif args.moco_version == "largeV2": #we adopt the baseline's setting (https://arxiv.org/pdf/2204.04385.pdf)
         args.mlp = True # use extra MLP head
