@@ -925,7 +925,7 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
 
             for c_id, (s, e) in zip(pool, unstack_indices):
                 matched_queue_for_client = matched_queues[c_id].T
-                domain_tokens_for_queue = self.domain_tokens[c_id].usqueeze(0).repeat(len(matched_queue_for_client))
+                domain_tokens_for_queue = self.domain_tokens[c_id].unsqueeze(0).repeat(len(matched_queue_for_client))
                 matched_queue_for_client_joined_with_domain = self.join_image_and_domain_embeddings(
                     image_embeddings=matched_queue_for_client, domain_embeddings=domain_tokens_for_queue
                 )
