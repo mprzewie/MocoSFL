@@ -445,7 +445,7 @@ class sflmoco_simulator(base_simulator):
             with torch.no_grad():
                 # generate feature bank
                 for i, (data, target) in enumerate(memloader[0]):
-                    feature = self.model(data.cuda(non_blocking=True))
+                    feature = self.model(data.cuda(non_blocking=True), classifier=False)
                     feature = F.normalize(feature, dim=1)
                     feature_bank.append(feature)
                     feature_labels.append(target)
@@ -458,7 +458,7 @@ class sflmoco_simulator(base_simulator):
 
                 for i, (data, target) in enumerate(self.validate_loader):
                     data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
-                    feature = self.model(data)
+                    feature = self.model(data, classifier=False)
                     feature = F.normalize(feature, dim=1)
 
                     pred_labels = knn_predict(feature, feature_bank, feature_labels, classes, 200, 0.1)

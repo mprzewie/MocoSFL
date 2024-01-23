@@ -269,7 +269,7 @@ class ResNet(nn.Module):
 
         self.avg_pool = nn.AdaptiveAvgPool2d((1,1))
         self.merge_unmerge_allowed = merge_unmerge_allowed
-    def forward(self, x, client_id = 0):
+    def forward(self, x, client_id = 0, classifier: bool=True):
         if self.cloud_classifier_merge:
             x = self.local_list[client_id](x)
 
@@ -284,10 +284,11 @@ class ResNet(nn.Module):
             x = self.avg_pool(x)
             x = x.view(x.size(0), -1)
 
-            if isinstance(self.classifier, nn.ModuleList):
-                x = self.classifier[client_id](x)
-            else:
-                x = self.classifier(x)
+            if classifier:
+                if isinstance(self.classifier, nn.ModuleList):
+                    x = self.classifier[client_id](x)
+                else:
+                    x = self.classifier(x)
         return x
     def __call__(self, x, client_id = 0):
         return self.forward(x, client_id)
