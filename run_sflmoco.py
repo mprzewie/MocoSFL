@@ -259,6 +259,7 @@ if not args.resume:
         avg_gan_train_loss = 0.0
         avg_gan_eval_loss = 0.0
         for batch in range(num_batch):
+            break
             sfl.optimizer_zero_grads()
 
             if loss_status.status == "A" or loss_status.status == "B":
@@ -431,6 +432,7 @@ if not args.resume:
         sfl.log_metrics(metrics_to_log)
         sfl.log(epoch_logging_msg)
         gc.collect()
+
 if args.loss_threshold > 0.0:
     saving = loss_status.epoch_recording["C"] + loss_status.epoch_recording["B"]/2
     sfl.log(f"Communiation saving: {saving} / {args.num_epoch}")

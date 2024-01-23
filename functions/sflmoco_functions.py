@@ -434,7 +434,7 @@ class sflmoco_simulator(base_simulator):
         self.train()  #set back to train mode
         return best_avg_accu
 
-    def knn_eval(self, memloader): # Use linear evaluation
+    def knn_eval(self, memloader, client_id: int=0): # Use linear evaluation
         if self.c_instance_list:
             self.c_instance_list[0].cuda()
         # test using a knn monitor
@@ -442,10 +442,15 @@ class sflmoco_simulator(base_simulator):
             self.eval()
             classes = self.num_class
             total_top1, total_top5, total_num, feature_bank, feature_labels = 0.0, 0.0, 0, [], []
+            avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+
             with torch.no_grad():
                 # generate feature bank
                 for i, (data, target) in enumerate(memloader[0]):
-                    feature = self.model(data.cuda(non_blocking=True), classifier=False)
+                    output = self.model.local_list[client_id](data.cuda(non_blocking=True))
+                    output = self.model.cloud(output)
+                    output = avg_pool(output)
+                    feature = output.view(output.size(0), -1)
                     feature = F.normalize(feature, dim=1)
                     feature_bank.append(feature)
                     feature_labels.append(target)
@@ -458,7 +463,10 @@ class sflmoco_simulator(base_simulator):
 
                 for i, (data, target) in enumerate(self.validate_loader):
                     data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
-                    feature = self.model(data, classifier=False)
+                    output = self.model.local_list[client_id](data)
+                    output = self.model.cloud(output)
+                    output = avg_pool(output)
+                    feature = output.view(output.size(0), -1)
                     feature = F.normalize(feature, dim=1)
 
                     pred_labels = knn_predict(feature, feature_bank, feature_labels, classes, 200, 0.1)
