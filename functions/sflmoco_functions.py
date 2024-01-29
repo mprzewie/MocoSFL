@@ -61,7 +61,7 @@ class sflmoco_simulator(base_simulator):
                 params_to_optimize = (
                         list(self.s_instance.model.parameters()) +
                         list(self.s_instance.projector.parameters()) +
-                        [self.s_instance.domain_tokens]
+                        ([self.s_instance.domain_tokens] if not args.domain_tokens_zero else [])
                 )
 
                 # # TODO deprecated, left for reference, doesn't support all functionalities of the new impl
