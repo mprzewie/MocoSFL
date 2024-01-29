@@ -801,8 +801,12 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
         self.projection_space = args.projection_space
 
         self.domain_tokens = nn.Parameter(
-            torch.randn(args.num_client, args.domain_tokens_shape).cuda()
-        )
+            torch.randn(args.num_client, args.domain_tokens_shape)
+        ) if not args.domain_tokens_zero else torch.zeros(args.num_client, args.domain_tokens_shape)
+
+
+        if torch.cuda.is_available():
+            self.domain_tokens = self.domain_tokens.cuda()
         self.domain_tokens_injection = args.domain_tokens_injection
 
 
@@ -991,6 +995,10 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
         if self.domain_tokens_injection == "add":
             assert image_embeddings.shape == domain_embeddings.shape
             return image_embeddings + domain_embeddings
+
+        if self.domain_tokens_injection == "mul":
+            assert image_embeddings.shape == domain_embeddings.shape
+            return image_embeddings * domain_embeddings
 
         if self.domain_tokens_injection == "cat":
             assert len(image_embeddings) == len(domain_embeddings)
