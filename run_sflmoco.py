@@ -259,7 +259,6 @@ if not args.resume:
         avg_gan_train_loss = 0.0
         avg_gan_eval_loss = 0.0
         for batch in range(num_batch):
-            break
             sfl.optimizer_zero_grads()
 
             if loss_status.status == "A" or loss_status.status == "B":
