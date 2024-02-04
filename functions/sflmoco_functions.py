@@ -799,16 +799,21 @@ class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
         self.projector = projector
         self.t_projector = copy.deepcopy(projector)
         self.projection_space = args.projection_space
-
+                
         self.domain_tokens = nn.Parameter(
-            torch.randn(args.num_client, args.domain_tokens_shape)
-        ) if not args.domain_tokens_zero else torch.zeros(args.num_client, args.domain_tokens_shape)
-
-
-        if torch.cuda.is_available():
-            self.domain_tokens = self.domain_tokens.cuda()
+            torch.randn(
+                args.num_client, args.domain_tokens_shape, 
+                device=("cuda" if torch.cuda.is_available() else "cpu")
+            )
+        ) if not args.domain_tokens_zero else torch.zeros(
+            args.num_client, 
+            args.domain_tokens_shape, 
+            device=("cuda" if torch.cuda.is_available() else "cpu")
+        )
+    
+            
         self.domain_tokens_injection = args.domain_tokens_injection
-
+        
 
     def cuda(self):
         super().cuda()
