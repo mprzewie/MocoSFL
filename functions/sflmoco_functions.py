@@ -328,6 +328,7 @@ class sflmoco_simulator(base_simulator):
             return step
 
         best_accuracy = 0
+        best_accuracy_train = 0
         for w in torch.logspace(-6, 5, steps=num_ws_to_check).tolist():
             linear_classifier.apply(init_weights)
 
@@ -341,6 +342,10 @@ class sflmoco_simulator(base_simulator):
             with torch.no_grad():
                 y_test_pred = linear_classifier(test_features)
                 prec1 = accuracy(y_test_pred, test_labels)[0]
+
+                y_train_pred = linear_classifier(train_features)
+                prec_train = accuracy(y_train_pred, train_labels)[0]
+
                 self.log_metrics(
                     {
                         f"val_linear_v2/c{client_id}_d{dataset_id}/w": w,
@@ -350,12 +355,13 @@ class sflmoco_simulator(base_simulator):
                 )
                 if prec1 > best_accuracy:
                     best_accuracy = prec1.item()
+                    best_accuracy_train = prec_train.item()
 
         if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
             self.model.merge_classifier_cloud()
 
         self.train()  # set back to train mode
-        return best_accuracy
+        return best_accuracy, best_accuracy_train
 
 
     def semisupervise_eval(self, memloader, num_epochs = 100, lr = 3.0): # Use semi-supervised learning as evaluation

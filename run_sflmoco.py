@@ -452,7 +452,7 @@ if not args.dataset == 'domainnet':
 else:
     eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 1.0, False, path_to_data="./data/DomainNet/rawdata")
 
-val_acc = sfl.linear_eval_v2(eval_loader, 100)
+val_acc, _ = sfl.linear_eval_v2(eval_loader, 100)
 sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
 metrics_test["test_linear/global"] = val_acc
 
@@ -460,30 +460,44 @@ metrics_test["test_linear/global"] = val_acc
 sfl.load_model(load_local_clients=True)
 
 n_clients = len(sfl.per_client_test_loaders.keys())
-client_square_accuracies = np.ones((n_clients, n_clients)) * -1
-client_diagonal_accuracies = []
+client_square_accuracies_test = np.ones((n_clients, n_clients)) * -1
+client_diagonal_accuracies_test = []
+
+client_square_accuracies_train = np.ones((n_clients, n_clients)) * -1
+client_diagonal_accuracies_train = []
 
 for client_id in sfl.per_client_test_loaders.keys():
-    dataset_acuracies = []
     for dataset_id in sfl.per_client_test_loaders.keys():
         if args.eval_personalized != "square" and (client_id != dataset_id):
             continue
 
-        client_acc = sfl.linear_eval_v2(memloader=None, num_epochs=100, client_id=client_id, dataset_id=dataset_id)
-        metrics_test[f"test_linear/client/{client_id}_{dataset_id}"] = client_acc
-        dataset_acuracies.append(client_acc)
+        client_test_acc, client_train_acc = sfl.linear_eval_v2(memloader=None, num_epochs=100, client_id=client_id, dataset_id=dataset_id)
+        metrics_test[f"test_linear/client/{client_id}_{dataset_id}"] = client_test_acc
         if client_id == dataset_id:
-            client_diagonal_accuracies.append(client_acc)
-        client_square_accuracies[client_id, dataset_id] = client_acc
+            client_diagonal_accuracies_test.append(client_test_acc)
+            client_diagonal_accuracies_train.append(client_train_acc)
+
+        client_square_accuracies_test[client_id, dataset_id] = client_test_acc
+        client_square_accuracies_train[client_id, dataset_id] = client_train_acc
 
 
-heatmap = sns.heatmap(client_square_accuracies, annot=True, fmt='.2f', vmin=0, vmax=100, annot_kws={"size": 35 / np.sqrt(len(client_square_accuracies))},)
+
+
+metrics_test["test_linear/client/diagonal"] = np.mean(client_diagonal_accuracies_test)
+metrics_test["test_linear/client/square"] = np.mean(client_square_accuracies_test)
+
+heatmap = sns.heatmap(client_square_accuracies_test, annot=True, fmt='.2f', vmin=0, vmax=100, annot_kws={"size": 35 / np.sqrt(len(client_square_accuracies_test))}, )
 plt.xlabel("Dataset")
 plt.ylabel("Client")
-
-metrics_test["test_linear/client/diagonal"] = np.mean(client_diagonal_accuracies)
-metrics_test["test_linear/client/square"] = np.mean(client_square_accuracies)
 metrics_test["test_linear/grid"] = wandb.Image(heatmap.get_figure(), caption="Accuracy per task heatmap")
+
+metrics_test["test_linear/client/diagonal_train"] = np.mean(client_diagonal_accuracies_train)
+metrics_test["test_linear/client/square_train"] = np.mean(client_square_accuracies_train)
+heatmap = sns.heatmap(client_square_accuracies_train, annot=True, fmt='.2f', vmin=0, vmax=100, annot_kws={"size": 35 / np.sqrt(len(client_square_accuracies_test))}, )
+plt.xlabel("Dataset")
+plt.ylabel("Client")
+metrics_test["test_linear/grid_train"] = wandb.Image(heatmap.get_figure(), caption="Accuracy per task heatmap")
+
 
 ious = get_client_iou_matrix(client_to_labels=client_to_labels)
 heatmpap = sns.heatmap(ious, annot=True, fmt=".2f", vmax=100, annot_kws={"size": 35 / np.sqrt(len(ious))},)
