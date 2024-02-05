@@ -1068,6 +1068,7 @@ def get_domainnet_pairloader(batch_size=16, num_workers=2, shuffle=True, num_cli
         transforms.Resize((224, 224)),
         transforms.RandomResizedCrop(224, scale=(0.75, 1)),
         transforms.RandomHorizontalFlip(),
+        # transforms.RandomApply(transforms.ColorJitter(0.4, 0.4, 0.4, 0.1), p=0.8),
         transforms.ToTensor(),
         transforms.Normalize(DOMAINNET_TRAIN_MEAN, DOMAINNET_TRAIN_STD)
     ])

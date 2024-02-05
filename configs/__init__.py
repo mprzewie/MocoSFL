@@ -114,7 +114,7 @@ def get_sfl_args():
     parser.add_argument("--projection-space", type=str, default="common", choices=["common", "personalized"])
     parser.add_argument("--domain-tokens-injection", type=str, choices=["none", "cat", "add", "mul"], default="none")
     parser.add_argument("--domain-tokens-shape", type=int, default=64)
-    parser.add_argument("--domain-tokens-zero", action="store_true", default=False)
+    parser.add_argument("--domain-tokens-override", default="none", choices=["none", "zero", "onehot"])
 
 
 
