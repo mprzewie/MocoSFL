@@ -131,8 +131,11 @@ predictor_list = []
 projector_input_dim = output_dim * global_model.expansion
 
 if args.domain_tokens_injection == "cat":
-    projector_input_dim = projector_input_dim + args.domain_tokens_shape
-
+    projector_input_dim = (
+        (projector_input_dim + args.domain_tokens_shape)
+        if args.domain_tokens_override != "onehot" 
+        else (projector_input_dim + + args.num_client)
+    )
 
 if args.mlp:
     if args.moco_version == "largeV2": # This one uses a larger classifier, same as in Zhuang et al. Divergence-aware paper
