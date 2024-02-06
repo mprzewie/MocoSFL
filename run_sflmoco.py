@@ -496,6 +496,8 @@ metrics_test["test_linear/grid"] = wandb.Image(heatmap.get_figure(), caption="Ac
 
 metrics_test["test_linear/client/diagonal_train"] = np.mean(client_diagonal_accuracies_train)
 metrics_test["test_linear/client/square_train"] = np.mean(client_square_accuracies_train)
+
+plt.clf()
 heatmap = sns.heatmap(client_square_accuracies_train, annot=True, fmt='.2f', vmin=0, vmax=100, annot_kws={"size": 35 / np.sqrt(len(client_square_accuracies_test))}, )
 plt.xlabel("Dataset")
 plt.ylabel("Client")
