@@ -43,6 +43,7 @@ set_deterministic(args.seed)
 '''Preparing'''
 #get data
 create_dataset = getattr(datasets, f"get_{args.dataset}")
+kwargs = dict(subset=args.domainnet_subset) if args.dataset == "domainnet" else dict()
 (
     per_client_train_loaders,
     mem_loader,
@@ -53,7 +54,8 @@ create_dataset = getattr(datasets, f"get_{args.dataset}")
     batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True,
     num_client = args.num_client, data_proportion = args.data_proportion,
     noniid_ratio = args.noniid_ratio, augmentation_option = True,
-    pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string
+    pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string,
+    **kwargs
 )
 get_time()
 num_batch = len(per_client_train_loaders[0])
@@ -444,32 +446,32 @@ metrics_test = dict()
 '''Testing'''
 sfl.load_model() # load model that has the lowest contrastive loss.
 # finally, do a thorough evaluation.
-val_acc = sfl.knn_eval(memloader=mem_loader)
-sfl.log(f"final knn evaluation accuracy is {val_acc:.2f}")
-metrics_test["knn/accuracy/test"] = val_acc
+# val_acc = sfl.knn_eval(memloader=mem_loader)
+# sfl.log(f"final knn evaluation accuracy is {val_acc:.2f}")
+# metrics_test["knn/accuracy/test"] = val_acc
 
-create_train_dataset = getattr(datasets, f"get_{args.dataset}_trainloader")
+# create_train_dataset = getattr(datasets, f"get_{args.dataset}_trainloader")
+#
+# if not args.dataset == 'domainnet':
+#     eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 1.0, 1.0, False)
+# else:
+#     eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 1.0, False, path_to_data="./data/DomainNet/rawdata")
 
-if not args.dataset == 'domainnet':
-    eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 1.0, 1.0, False)
-else:
-    eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 1.0, False, path_to_data="./data/DomainNet/rawdata")
-
-val_acc, _ = sfl.linear_eval_v2(eval_loader, 100)
-sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
-metrics_test["test_linear/global"] = val_acc
+# val_acc, _ = sfl.linear_eval_v2(eval_loader, 100)
+# sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
+# metrics_test["test_linear/global"] = val_acc
 
 # load model that has the lowest contrastive loss.
 sfl.load_model(load_local_clients=True)
 
-n_clients = len(sfl.per_client_test_loaders.keys())
-client_square_accuracies_test = np.ones((n_clients, n_clients)) * -1
+n_datasets = len(sfl.per_client_test_loaders.keys())
+client_square_accuracies_test = np.ones((args.num_client, n_datasets)) * -1
 client_diagonal_accuracies_test = []
 
-client_square_accuracies_train = np.ones((n_clients, n_clients)) * -1
+client_square_accuracies_train = np.ones((args.num_client, n_datasets)) * -1
 client_diagonal_accuracies_train = []
 
-for client_id in sfl.per_client_test_loaders.keys():
+for client_id in range(args.num_client):
     for dataset_id in sfl.per_client_test_loaders.keys():
         if args.eval_personalized != "square" and (client_id != dataset_id):
             continue

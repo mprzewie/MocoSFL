@@ -115,7 +115,7 @@ def get_sfl_args():
     parser.add_argument("--domain-tokens-injection", type=str, choices=["none", "cat", "add", "mul"], default="none")
     parser.add_argument("--domain-tokens-shape", type=int, default=64)
     parser.add_argument("--domain-tokens-override", default="none", choices=["none", "zero", "onehot"])
-
+    parser.add_argument("--domainnet-subset", default=None, choices=["clipart", "infograph", "painting", "quickdraw", "real", "sketch", None])
 
 
     args = parser.parse_args()
