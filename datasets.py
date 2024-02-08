@@ -1065,10 +1065,11 @@ def get_domainnet_pairloader(batch_size=16, num_workers=2, shuffle=True, num_cli
     all_domain_data = read_all_domainnet_data(path_to_data, split="train")
 
     train_transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.RandomResizedCrop(224, scale=(0.75, 1)),
+        transforms.RandomResizedCrop(224, scale=(0.8, 1)),
         transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
         # transforms.RandomApply(transforms.ColorJitter(0.4, 0.4, 0.4, 0.1), p=0.8),
+        transforms.RandomRotation(30),
         transforms.ToTensor(),
         transforms.Normalize(DOMAINNET_TRAIN_MEAN, DOMAINNET_TRAIN_STD)
     ])
@@ -1120,20 +1121,13 @@ def get_domainnet_trainloader(batch_size=16, num_workers=2, shuffle=True, num_cl
         A list of DataLoaders for each client and a dictionary assigning clients to classes.
     """
 
-    if augmentation_option:
-        transform_train = transforms.Compose([
-            transforms.Resize((224,224)),
-            transforms.RandomResizedCrop(224, scale=(0.75, 1)),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(15),
-            transforms.ToTensor(),
-            transforms.Normalize(DOMAINNET_TRAIN_MEAN, DOMAINNET_TRAIN_STD)
-        ])
-    else:
-        transform_train = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(DOMAINNET_TRAIN_MEAN, DOMAINNET_TRAIN_STD)
+    transform_train = transforms.Compose([
+        transforms.RandomResizedCrop(224, scale=(0.8, 1)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+        transforms.RandomRotation(30),
+        transforms.ToTensor(),
+        transforms.Normalize(DOMAINNET_TRAIN_MEAN, DOMAINNET_TRAIN_STD)
         ])
 
     all_domain_data = read_all_domainnet_data(path_to_data, split=split)
