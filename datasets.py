@@ -64,13 +64,16 @@ def denormalize(x, dataset): # normalize a zero mean, std = 1 to range [0, 1]
 def get_cifar10(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_proportion = 1.0, noniid_ratio =1.0, augmentation_option = False, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"):
     if pairloader_option != "None":
         if data_proportion > 0.0:
-            train_loader = get_cifar10_pairloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, pairloader_option, hetero, hetero_string, path_to_data)
+            train_loader, client_to_labels = get_cifar10_pairloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, pairloader_option, hetero, hetero_string, path_to_data)
         else:
+            assert False, "not allowed"
             train_loader = None
-        mem_loader = get_cifar10_trainloader(128, num_workers, False, path_to_data = path_to_data)
-        test_loader = get_cifar10_testloader(128, num_workers, False, path_to_data)
-        return train_loader, mem_loader, test_loader
+        mem_loader, _ = get_cifar10_trainloader(128, num_workers, False, path_to_data=path_to_data)
+        test_loader, per_client_test_loaders = get_cifar10_testloader(128, num_workers, False, path_to_data, client_to_labels=client_to_labels)
+        return train_loader, mem_loader, test_loader, per_client_test_loaders, client_to_labels
     else:
+        assert False, "not allowed"
+
         if data_proportion > 0.0:
             train_loader = get_cifar10_trainloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, augmentation_option, hetero, hetero_string, path_to_data)
         else:
@@ -273,7 +276,9 @@ def get_cifar10_pairloader(batch_size=16, num_workers=2, shuffle=True, num_clien
                 im_1 = self.transform(img)
                 im_2 = self.transform(img)
 
-            return im_1, im_2
+            label = self.targets[index]
+            return (im_1, im_2), label
+
     if pairloader_option == "mocov1":
         train_transform = transforms.Compose([
             transforms.RandomResizedCrop(32),
@@ -748,7 +753,7 @@ def get_cifar10_trainloader(batch_size=16, num_workers=2, shuffle=True, num_clie
 
     return cifar10_training_loader
 
-def get_cifar10_testloader(batch_size=16, num_workers=2, shuffle=False, path_to_data = "./data"):
+def get_cifar10_testloader(batch_size=16, num_workers=2, shuffle=False, path_to_data = "./data", client_to_labels=None):
     """ return training dataloader
     Args:
         mean: mean of cifar10 test dataset
@@ -768,7 +773,18 @@ def get_cifar10_testloader(batch_size=16, num_workers=2, shuffle=False, path_to_
     cifar10_test_loader = DataLoader(
         cifar10_test, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size)
 
-    return cifar10_test_loader
+    targets = np.array(cifar10_test.targets)
+
+    per_client_test_loaders = {
+        c_id: DataLoader(
+            Subset(cifar10_test, [i for (i, t) in enumerate(targets) if t in c_labels]),
+            shuffle=shuffle, num_workers=num_workers, batch_size=batch_size, drop_last=False
+        )
+        for (c_id, c_labels)
+        in client_to_labels.items()
+    } if client_to_labels is not None else None
+
+    return cifar10_test_loader, per_client_test_loaders
 
 def get_cifar100_trainloader(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_portion = 1.0, noniid_ratio = 1.0, augmentation_option = False, hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"):
     """ return training dataloader
