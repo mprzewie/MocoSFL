@@ -72,7 +72,7 @@ class sflmoco_simulator(base_simulator):
         """
         Run Linear evaluation
         """
-        assert False, "Use linear_eval_v2 instead!"
+        # assert False, "Use linear_eval_v2 instead!"
         assert (
             (memloader is None or client_id is None)
             and

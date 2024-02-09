@@ -279,6 +279,7 @@ if not args.resume:
         sfl.log_metrics(metrics_to_log)
         sfl.log(epoch_logging_msg)
         gc.collect()
+        
 if args.loss_threshold > 0.0:
     saving = loss_status.epoch_recording["C"] + loss_status.epoch_recording["B"]/2
     sfl.log(f"Communiation saving: {saving} / {args.num_epoch}")
@@ -299,15 +300,19 @@ val_acc = sfl.linear_eval_v2(eval_loader, 100)
 sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
 metrics_test["test_linear/global"] = val_acc
 
-# load model that has the lowest contrastive loss.
-sfl.load_model(load_local_clients=True)
-client_accuracies = []
-for client_id in sfl.per_client_test_loaders.keys():
-    client_acc = sfl.linear_eval_v2(memloader=None, num_epochs=100, client_id=client_id)
-    metrics_test[f"test_linear/client/{client_id}"] = client_acc
-    client_accuracies.append(client_acc)
+val_acc = sfl.linear_eval(eval_loader, 100)
+sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
+metrics_test["test_linear/global_v1"] = val_acc
 
-metrics_test["test_linear/client/average"] = np.mean(client_accuracies)
+# # load model that has the lowest contrastive loss.
+# sfl.load_model(load_local_clients=True)
+# client_accuracies = []
+# for client_id in sfl.per_client_test_loaders.keys():
+#     client_acc = sfl.linear_eval_v2(memloader=None, num_epochs=100, client_id=client_id)
+#     metrics_test[f"test_linear/client/{client_id}"] = client_acc
+#     client_accuracies.append(client_acc)
+
+# metrics_test["test_linear/client/average"] = np.mean(client_accuracies)
 
 
 # eval_loader = create_train_dataset(128, args.num_workers, False, 1, 0.1, 1.0, False)
