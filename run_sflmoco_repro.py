@@ -216,7 +216,7 @@ if args.initialze_path != "None":
     sfl.load_model_from_path(args.initialze_path, load_client = True, load_server = args.load_server)
     args.attack = True
 
-if args.cutlayer > 1:
+if args.cutlayer >= 1:
     sfl.cuda()
 else:
     sfl.cpu()
@@ -274,9 +274,8 @@ if not args.resume:
                 for i, client_id in enumerate(pool): # if distributed, this can be parallelly done.
                     (query, pkey), _ = sfl.next_data_batch(client_id) # _ is label, but we don't use it here!
 
-                    if args.cutlayer > 1:
-                        query = query.cuda()
-                        pkey = pkey.cuda()
+                    query = query.cuda()
+                    pkey = pkey.cuda()
 
                     # print(query.shape, pkey.shape)
                     if sfl.s_instance.symmetric:
@@ -342,7 +341,7 @@ if not args.resume:
             avg_accu += accu
 
             # distribute gradients to clients
-            if args.cutlayer <= 1:
+            if args.cutlayer < 1:
                 gradient = gradient.cpu()
 
             if loss_status.status == "A":
@@ -413,7 +412,7 @@ if not args.resume:
 
         # assert False, [type(m) for m in mem_loader]
         knn_val_acc = sfl.knn_eval(memloader=mem_loader)
-        if args.cutlayer <= 1:
+        if args.cutlayer < 1:
             sfl.c_instance_list[0].cpu()
         if knn_val_acc > knn_accu_max:
             knn_accu_max = knn_val_acc
