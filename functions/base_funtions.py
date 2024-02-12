@@ -203,6 +203,7 @@ class base_simulator:
     def load_model(self, is_best=True, epoch=200, load_local_clients: bool = False):
         if is_best:
             epoch = "best"
+        print("Model loaded from ", self.output_dir)
         checkpoint_s = torch.load(self.output_dir + '/checkpoint_s_{}.tar'.format(epoch))
         self.model.cloud.load_state_dict(checkpoint_s)
 
@@ -215,6 +216,7 @@ class base_simulator:
             local_checkpoints = torch.load(self.output_dir + f'/checkpoint_locals_{epoch}.tar')
             for i in range(self.num_client):
                 self.model.local_list[i].load_state_dict(local_checkpoints["local_models"][i])
+
 
 
     def load_model_from_path(self, model_path, load_client = True, load_server = False):

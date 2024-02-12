@@ -77,6 +77,8 @@ criterion = nn.CrossEntropyLoss().cuda()
 
 #initialize sfl
 sfl = sflmoco_simulator(global_model, criterion, train_loader, test_loader, per_client_test_loader=per_client_test_loaders, args=args)
+if args.load_model:
+    sfl.load_model()
 
 '''Initialze with ResSFL resilient model ''' 
 if args.initialze_path != "None":
@@ -115,6 +117,10 @@ if not args.resume:
     loss_status = loss_based_status(loss_threshold = args.loss_threshold)
     
     for epoch in range(1, args.num_epoch + 1):
+
+        if args.break_epoch == epoch:
+            print("Stop training in ", epoch)
+            break
         
         if args.loss_threshold > 0.0:
             print(f"loss_status: {loss_status.status}")
@@ -279,7 +285,7 @@ if not args.resume:
         sfl.log_metrics(metrics_to_log)
         sfl.log(epoch_logging_msg)
         gc.collect()
-        
+
 if args.loss_threshold > 0.0:
     saving = loss_status.epoch_recording["C"] + loss_status.epoch_recording["B"]/2
     sfl.log(f"Communiation saving: {saving} / {args.num_epoch}")
@@ -300,19 +306,15 @@ val_acc = sfl.linear_eval_v2(eval_loader, 100)
 sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
 metrics_test["test_linear/global"] = val_acc
 
-val_acc = sfl.linear_eval(eval_loader, 100)
-sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
-metrics_test["test_linear/global_v1"] = val_acc
+# load model that has the lowest contrastive loss.
+sfl.load_model(load_local_clients=True)
+client_accuracies = []
+for client_id in sfl.per_client_test_loaders.keys():
+    client_acc = sfl.linear_eval_v2(memloader=None, num_epochs=100, client_id=client_id)
+    metrics_test[f"test_linear/client/{client_id}"] = client_acc
+    client_accuracies.append(client_acc)
 
-# # load model that has the lowest contrastive loss.
-# sfl.load_model(load_local_clients=True)
-# client_accuracies = []
-# for client_id in sfl.per_client_test_loaders.keys():
-#     client_acc = sfl.linear_eval_v2(memloader=None, num_epochs=100, client_id=client_id)
-#     metrics_test[f"test_linear/client/{client_id}"] = client_acc
-#     client_accuracies.append(client_acc)
-
-# metrics_test["test_linear/client/average"] = np.mean(client_accuracies)
+metrics_test["test_linear/client/average"] = np.mean(client_accuracies)
 
 
 # eval_loader = create_train_dataset(128, args.num_workers, False, 1, 0.1, 1.0, False)
