@@ -112,7 +112,8 @@ class OracleMostSimilarClientsGradientMatcher(OracleIOUGradientMatcher):
         for k, v in gradient_dict.items():
             g = torch.zeros_like(v)
             for c_id in self.selection[k]:
-                g = g + gradient_dict[c_id]
+                if c_id in gradient_dict:
+                    g = g + gradient_dict[c_id]
 
             result[k] = g
 
