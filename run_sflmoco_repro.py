@@ -387,7 +387,7 @@ if not args.resume:
 
             if (batch == num_batch - 1 or (batch % (num_batch//args.avg_freq) == (num_batch//args.avg_freq) - 1)) and (not args.disable_sync):
                 # sync client-side models
-                divergence_metrics = sfl.fedavg(pool, divergence_aware = args.divergence_aware, divergence_measure = args.divergence_measure)
+                divergence_metrics = sfl.fedavg(pool, divergence_aware = args.divergence_aware, divergence_measure = args.divergence_measure, fedavg_momentum_model=args.fedavg_momentum)
                 if divergence_metrics is not None:
                     groups = {k.split("/")[0] for k in divergence_metrics.keys()}
                     for g in groups:

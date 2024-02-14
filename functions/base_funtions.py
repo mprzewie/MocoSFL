@@ -94,9 +94,10 @@ class base_simulator:
             for client_id in range(self.num_client):
                 self.c_optimizer_list[client_id].zero_grad()
 
-    def fedavg(self, pool = None, divergence_aware = False, divergence_measure = False):
-        
+    def fedavg(self, pool = None, divergence_aware = False, divergence_measure = False, fedavg_momentum_model:bool=False):
         global_weights = average_weights(self.model.local_list, pool)
+        global_momentum_weights = average_weights([c.t_model for c in self.c_instance_list], pool)
+
         if divergence_measure:
             divergence_metrics = {}
         for client_id in range(self.num_client):
@@ -127,6 +128,7 @@ class base_simulator:
                             [2] it is used for the entire online encoder as well as its predictor. auto_scaler is invented.
                             
                 '''
+                assert not fedavg_momentum_model
                 if pool is None:
                     pool = range(len(self.num_client))
 
@@ -160,11 +162,15 @@ class base_simulator:
 
                 else: # if current client is not selected.
                     self.model.local_list[client_id].load_state_dict(global_weights)
+
             else:
                 '''
                 Normal case: directly get the averaged result
                 '''
+
                 self.model.local_list[client_id].load_state_dict(global_weights)
+                if fedavg_momentum_model:
+                    self.c_instance_list[client_id].t_model.load_state_dict(global_momentum_weights)
 
         if self.auto_scaler: # is only done at epoch 1
             self.auto_scaler = False # Will only use it once at the first round.

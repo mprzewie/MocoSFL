@@ -69,6 +69,7 @@ def get_sfl_args():
 
     # Split Learning Non-IID specific Setting (Advanced)
     parser.add_argument('--divergence_aware', action='store_true', default=False, help="set consistency_loss to False")
+    parser.add_argument("--fedavg-momentum", action="store_true", default=False)
     parser.add_argument('--div_lambda', type=float, default=1.0, help="divergence_aware_strength, if enable divergence_aware, increase strength means more personalization")
     parser.add_argument(
         "--div_layerwise", choices=["constant", "fraction", "fraction_reversed"], default="constant",
