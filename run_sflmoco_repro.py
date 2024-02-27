@@ -55,6 +55,7 @@ def client_forward(
     return hidden_query, hidden_pkey
 
 if __name__ == "__main__":
+    torch.multiprocessing.set_start_method('spawn')
     get_time()
     #get default args
     args = get_sfl_args()
