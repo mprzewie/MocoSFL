@@ -11,8 +11,10 @@ import torch
 # override calls to cuda()
 
 if not torch.cuda.is_available():
+    assert False, "cuda not available"
     torch.Tensor.cuda = lambda self, *args, **kwargs: torch.Tensor.cpu(self)
     torch.nn.Module.cuda = lambda self, *args, **kwargs: torch.nn.Module.cpu(self)
+print("cuda available")
 
 import datasets
 from configs import get_sfl_args, set_deterministic
@@ -533,4 +535,7 @@ if args.attack:
     val_acc = sfl.knn_eval(memloader=mem_loader)
     sfl.log(f"final knn evaluation accuracy is {val_acc:.2f}")
     MIA = MIA_attacker(sfl.model, per_client_train_loaders, args, "res_normN4C64")
-    MIA.MIA_attack()
+    mse_score, ssim_score, psnr_score = MIA.MIA_attack()
+    
+    
+    sfl.log_metrics({"attack/mse": mse_score, "attack/ssim": ssim_score, "attack/psnr": psnr_score})
