@@ -37,31 +37,22 @@ import wandb
 
 
 def client_forward(
-        i, query, pkey, symmetric: bool,
-        client_online: nn.Module, client_momentum: nn.Module, queue: mp.Queue):
-    # (query, pkey), _ = sfl.next_data_batch(c_id)  # _ is label, but we don't use it here!
+        query, pkey, symmetric: bool,
+        client_online: nn.Module, client_momentum: nn.Module,): # queue: mp.Queue):
     query = query.cuda()
     pkey = pkey.cuda()
 
-    # print(query.shape, pkey.shape)
     if symmetric:
         query2 = torch.cat([query, pkey])
         pkey2 = torch.cat([pkey, query])
         query = query2
         pkey = pkey2
 
-    # assert False, (query.shape, pkey.shape)
     hidden_query = client_online(query)  # pass to online
-    queue.put(hidden_query)
-    # hqv.value = hidden_query
-    # hidden_query_list[i] = hidden_query
     with torch.no_grad():
         hidden_pkey = client_momentum(pkey).detach()  # pass to target
-    queue.put(hidden_pkey)
-    # hpv.value = hidden_pkey
-    # hidden_pkey_list[i] = hidden_pkey
 
-    # print(i, [type(e) for e in hidden_query_list])
+    return hidden_query, hidden_pkey
 
 if __name__ == "__main__":
     get_time()
@@ -300,19 +291,18 @@ if __name__ == "__main__":
                     # hidden_query_list = [None for _ in range(len(pool))]
                     # hidden_pkey_list = [None for _ in range(len(pool))]
 
-                    from time import time
-                    s = time()
+                    # from time import time
+                    # s = time()
 
-
-
-                    #client forward
-                    processes = []
-                    queues = [mp.Queue() for _ in range(len(pool))]
-
-                    # hidden_query_list = [mp.Value() for _ in range(len(pool))]
-                    # hidden_pkey_list = [mp.Value() for _ in range(len(pool))]
+                    mp_pool = mp.Pool(args.num_workers if args.num_workers > 0 else None)
+                    args_list = []
                     for i, client_id in enumerate(pool): # if distributed, this can be parallelly done.
                         (query, pkey), _ = sfl.next_data_batch(client_id) # _ is label, but we don't use it here!
+                        args_list.append(
+                            (query, pkey, sfl.s_instance.symmetric,
+                             sfl.c_instance_list[client_id], sfl.c_instance_list[client_id].t_model,
+                             )
+                        )
                         #
                         # query = query.cuda()
                         # pkey = pkey.cuda()
@@ -334,26 +324,34 @@ if __name__ == "__main__":
                         #           sfl.c_instance_list[client_id],  sfl.c_instance_list[client_id].t_model,
                         #             queues[i]
                         #           )
-                        p = mp.Process(
-                            target=client_forward,
-                            args=(i, query, pkey, sfl.s_instance.symmetric,
-                                  sfl.c_instance_list[client_id],  sfl.c_instance_list[client_id].t_model,
-                                    queues[i]
-                                  )
-                        )
-                        p.start()
-                        processes.append(p)
+                        # mp_pool.apply(
+                        #     func=client_forward,
+                        #     args=(query, pkey, sfl.s_instance.symmetric,
+                        #           sfl.c_instance_list[client_id], sfl.c_instance_list[client_id].t_model,
+                        #           queues[i]
+                        #           )
+                        # )
+                    #     p = mp.Process(
+                    #         target=client_forward,
+                    #         args=(i, query, pkey, sfl.s_instance.symmetric,
+                    #               sfl.c_instance_list[client_id],  sfl.c_instance_list[client_id].t_model,
+                    #                 queues[i]
+                    #               )
+                    #     )
+                    #     p.start()
+                    #     processes.append(p)
+                    #
+                    # for p in processes:
+                    #     p.join()
+                    # mp_pool.close()
+                    # mp_pool.join()
 
-                    for p in processes:
-                        p.join()
-
-                    t = time()
-
-                    # assert False, t - s
-                    # hidden_query_list = [v.value for v in hidden_query_list]
-                    hidden_query_list = [q.get() for q in queues]
-                    hidden_pkey_list = [q.get() for q in queues]
-                    assert all([q.empty() for q in queues])
+                    hidden_query_lists_and_pkeys = mp_pool.starmap(client_forward, args_list)
+                    # t = time()
+                    #
+                    # assert False, (t - s)
+                    hidden_query_list = [hq for (hq, hp) in hidden_query_lists_and_pkeys]
+                    hidden_pkey_list = [hp for (hq, hp) in hidden_query_lists_and_pkeys]
 
                     hidden_query_list_pre_projector = hidden_query_list
                     stack_hidden_query = torch.cat(hidden_query_list, dim = 0)
