@@ -387,21 +387,20 @@ if not args.resume:
 
             gc.collect()
 
-            if (batch == num_batch - 1 or (batch % (num_batch//args.avg_freq) == (num_batch//args.avg_freq) - 1)) and (not args.disable_sync):
-                # sync client-side models
-                divergence_metrics = sfl.fedavg(pool, divergence_aware = args.divergence_aware, divergence_measure = args.divergence_measure, fedavg_momentum_model=args.fedavg_momentum)
-                if divergence_metrics is not None:
-                    groups = {k.split("/")[0] for k in divergence_metrics.keys()}
-                    for g in groups:
-                        g_metrics_values = [divergence_metrics[n] for n in divergence_metrics.keys() if n.startswith(f"{g}/")]
-                        divergence_metrics[f"{g}/mean"] =np.mean(g_metrics_values)
-                        divergence_metrics[f"{g}/std"] =np.mean(g_metrics_values)
-                    sfl.log_metrics({
-                            f"fl/{k}": v
-                            for (k,v) in divergence_metrics.items()
-                        },
-                        verbose=False
-                    )
+            do_fedavg =  (batch == num_batch - 1 or (batch % (num_batch//args.avg_freq) == (num_batch//args.avg_freq) - 1)) and (not args.disable_sync) # sync client-side models
+            divergence_metrics = sfl.fedavg(pool, divergence_aware = args.divergence_aware, divergence_measure = args.divergence_measure, fedavg_momentum_model=args.fedavg_momentum, do_fedavg=do_fedavg)
+            if divergence_metrics is not None:
+                groups = {k.split("/")[0] for k in divergence_metrics.keys()}
+                for g in groups:
+                    g_metrics_values = [divergence_metrics[n] for n in divergence_metrics.keys() if n.startswith(f"{g}/")]
+                    divergence_metrics[f"{g}/mean"] =np.mean(g_metrics_values)
+                    divergence_metrics[f"{g}/std"] =np.mean(g_metrics_values)
+                sfl.log_metrics({
+                        f"fl/{k}": v
+                        for (k,v) in divergence_metrics.items()
+                    },
+                    verbose=False
+                )
         sfl.s_scheduler.step()
 
         avg_accu = avg_accu / num_batch

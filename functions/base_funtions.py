@@ -94,12 +94,15 @@ class base_simulator:
             for client_id in range(self.num_client):
                 self.c_optimizer_list[client_id].zero_grad()
 
-    def fedavg(self, pool = None, divergence_aware = False, divergence_measure = False, fedavg_momentum_model:bool=False):
+    def fedavg(self, pool = None, divergence_aware = False, divergence_measure = False, fedavg_momentum_model:bool=False, do_fedavg: bool = True):
         global_weights = average_weights(self.model.local_list, pool)
         global_momentum_weights = average_weights([c.t_model for c in self.c_instance_list], pool)
 
         if divergence_measure:
-            divergence_metrics = {}
+            divergence_metrics = defaultdict(float)
+
+        divergence_metrics["div/fedavg"] = 1 if do_fedavg else 0
+
         for client_id in range(self.num_client):
             
             if divergence_measure:
@@ -108,15 +111,32 @@ class base_simulator:
                 
                 if client_id in pool: # if current client is selected.
                     divergences = defaultdict(float)
+                    online_sd = self.model.local_list[client_id].state_dict()
+                    momentum_sd = self.c_instance_list[client_id].t_model.state_dict()
+
+                    numel = 0
 
                     for key in global_weights.keys():
                         if "running" in key or "num_batches" in key: # skipping batchnorm running stats
                             continue
-                        layer_id = int(key.split(".")[0])
-                        divergences[layer_id] += torch.linalg.norm(torch.flatten(self.model.local_list[client_id].state_dict()[key] - global_weights[key]).float(), dim = -1, ord = 2)
 
-                    for layer_id, v in divergences.items():
-                        divergence_metrics[f"divergence@{layer_id}/{client_id}"] = divergences[layer_id].item()
+                        og = global_weights[key]
+                        mg = global_momentum_weights[key]
+                        ol = online_sd[key]
+                        ml = momentum_sd[key]
+                        divergences["ol-og"] += ((ol - og) ** 2).sum().item()
+                        divergences["ol-ml"] += ((ol - ml) ** 2).sum().item()
+                        divergences["ml-mg"] += ((ml - mg) ** 2).sum().item()
+
+                        numel += ol.numel()
+
+
+                        # layer_id = int(key.split(".")[0])
+                        # divergences[layer_id] += torch.linalg.norm(torch.flatten(online_sd[key] - global_weights[key]).float(), dim = -1, ord = 2)
+
+                    for k, v in divergences.items():
+                        divergence_metrics[f"div/{k}/{client_id}"] = v / numel
+                        divergence_metrics[f"div/{k}/mean"] += (v / numel) / len(pool)
 
 
             if divergence_aware:
@@ -163,7 +183,7 @@ class base_simulator:
                 else: # if current client is not selected.
                     self.model.local_list[client_id].load_state_dict(global_weights)
 
-            else:
+            elif do_fedavg:
                 '''
                 Normal case: directly get the averaged result
                 '''
