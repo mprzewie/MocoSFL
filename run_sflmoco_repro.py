@@ -265,6 +265,12 @@ if not args.resume:
         avg_accu = 0.0
         avg_gan_train_loss = 0.0
         avg_gan_eval_loss = 0.0
+
+        # TODO [1] - keep the copy of avg. weights
+        # TODO [2] - before the epoch, assign avg. weights only to the clients in the pool
+        # TODO [3] - when fedavging, fedavg only clients in the pool
+        #  (only they are relevant - other clients will be fedavged when they are sampled)
+        # TODO [4] - after the training, broadcast the averaged parameters to all clients
         for batch in range(num_batch):
             sfl.optimizer_zero_grads()
 
@@ -386,15 +392,16 @@ if not args.resume:
                 pass
 
             gc.collect()
-
             do_fedavg =  (batch == num_batch - 1 or (batch % (num_batch//args.avg_freq) == (num_batch//args.avg_freq) - 1)) and (not args.disable_sync) # sync client-side models
             divergence_metrics = sfl.fedavg(pool, divergence_aware = args.divergence_aware, divergence_measure = args.divergence_measure, fedavg_momentum_model=args.fedavg_momentum, do_fedavg=do_fedavg)
+
+
             if divergence_metrics is not None:
-                groups = {k.split("/")[0] for k in divergence_metrics.keys()}
-                for g in groups:
-                    g_metrics_values = [divergence_metrics[n] for n in divergence_metrics.keys() if n.startswith(f"{g}/")]
-                    divergence_metrics[f"{g}/mean"] =np.mean(g_metrics_values)
-                    divergence_metrics[f"{g}/std"] =np.mean(g_metrics_values)
+                # groups = {k.split("/")[0] for k in divergence_metrics.keys()}
+                # for g in groups:
+                #     g_metrics_values = [divergence_metrics[n] for n in divergence_metrics.keys() if n.startswith(f"{g}/")]
+                #     divergence_metrics[f"{g}/mean"] =np.mean(g_metrics_values)
+                #     divergence_metrics[f"{g}/std"] =np.mean(g_metrics_values)
                 sfl.log_metrics({
                         f"fl/{k}": v
                         for (k,v) in divergence_metrics.items()
