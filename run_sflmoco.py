@@ -135,7 +135,7 @@ projector_input_dim = output_dim * global_model.expansion
 if args.domain_tokens_injection == "cat":
     projector_input_dim = (
         (projector_input_dim + args.domain_tokens_shape)
-        if args.domain_tokens_override != "onehot" 
+        if args.domain_tokens_override != "onehot"
         else (projector_input_dim + + args.num_client)
     )
 
@@ -248,7 +248,11 @@ if not args.resume:
     loss_status = loss_based_status(loss_threshold = args.loss_threshold)
     
     for epoch in range(1, args.num_epoch + 1):
-        get_time()
+
+        if args.break_epoch == epoch:
+            print("Stop training in ", epoch)
+            break
+
         if args.loss_threshold > 0.0:
             print(f"loss_status: {loss_status.status}")
 

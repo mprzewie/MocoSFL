@@ -68,18 +68,18 @@ def get_cifar10(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data
         else:
             assert False, "not allowed"
             train_loader = None
-        mem_loader, _ = get_cifar10_trainloader(128, num_workers, False, path_to_data=path_to_data)
+            client_to_labels = None
+        mem_loader, _ = get_cifar10_trainloader(128, num_workers, False, path_to_data = path_to_data)
         test_loader, per_client_test_loaders = get_cifar10_testloader(128, num_workers, False, path_to_data, client_to_labels=client_to_labels)
         return train_loader, mem_loader, test_loader, per_client_test_loaders, client_to_labels
     else:
         assert False, "not allowed"
-
         if data_proportion > 0.0:
             train_loader = get_cifar10_trainloader(batch_size, num_workers, shuffle, num_client, data_proportion, noniid_ratio, augmentation_option, hetero, hetero_string, path_to_data)
         else:
             train_loader = None
         test_loader = get_cifar10_testloader(128, num_workers, False, path_to_data)
-        return train_loader, test_loader
+        return train_loader, test_loader, per_client_test_loaders, client_to_labels
 
 def get_cifar100(batch_size=16, num_workers=2, shuffle=True, num_client = 1, data_proportion = 1.0, noniid_ratio =1.0, augmentation_option = False, pairloader_option = "None", hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2", path_to_data = "./data"):
     if pairloader_option != "None":

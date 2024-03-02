@@ -40,6 +40,10 @@ def get_sfl_args():
     parser.add_argument('--data_size', type=int, default=32, help="dimension size of input data")
     parser.add_argument('--avg_freq', type=int, default=1, help="frequency to perform fedavg per round")
 
+    parser.add_argument('--load_model', action='store_true', default=False, help="load model to resume training")
+    parser.add_argument('--break_epoch', type=int, default=1, help="at which epoch to stop training")
+
+
     # Split Learning Setting (Basic)
     parser.add_argument('--num_client', type=int, default=1)
     parser.add_argument('--cutlayer', type=int, default=1)
