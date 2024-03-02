@@ -125,9 +125,10 @@ elif "MobileNetV2" in args.arch:
     create_arch =  getattr(mobilenetv2, args.arch)
     output_dim = 1280
 
+NEW_IMPLEMENTATION = False
 #get model - use a larger classifier, as in Zhuang et al. Divergence-aware paper
 global_model = create_arch(cutting_layer=args.cutlayer, num_client = args.num_client, num_class=args.K_dim, group_norm=True, input_size= args.data_size,
-                             adds_bottleneck=args.adds_bottleneck, bottleneck_option=args.bottleneck_option, c_residual = args.c_residual, WS = args.WS, merge_unmerge_allowed=False)
+                             adds_bottleneck=args.adds_bottleneck, bottleneck_option=args.bottleneck_option, c_residual = args.c_residual, WS = args.WS, merge_unmerge_allowed=(not NEW_IMPLEMENTATION))
 
 get_time()
 predictor_list = []
@@ -208,7 +209,8 @@ sfl = sflmoco_simulator(
     global_model, criterion, per_client_train_loaders, test_loader,
     per_client_test_loader=per_client_test_loaders, args=args,
     # queue_matcher=NoOpQueueMatcher()
-    queue_matcher=qmatcher
+    queue_matcher=qmatcher,
+    new_implementation=NEW_IMPLEMENTATION
 )
 get_time()
 
@@ -286,7 +288,7 @@ if not args.resume:
                     pkey = pkey.cuda()
 
                     # print(query.shape, pkey.shape)
-                    if sfl.s_instance.symmetric:
+                    if sfl.s_instance.symmetric and not sfl.s_instance.symmetric_original:
                         query2 = torch.cat([query, pkey])
                         pkey2 = torch.cat([pkey, query])
                         query = query2
@@ -357,7 +359,11 @@ if not args.resume:
                 gradient_dict = {key: [] for key in range(len(pool))}
 
                 if not args.hetero:
-                    step_size = args.batch_size if not sfl.s_instance.symmetric else 2*args.batch_size
+                    if not sfl.s_instance.symmetric or  sfl.s_instance.symmetric_original:
+                        step_size = args.batch_size
+                    else:
+                        step_size = 2*args.batch_size
+
                     for j in range(len(pool)):
                         gradient_dict[j] = gradient[j*step_size:(j+1)*step_size, :]
                 else:

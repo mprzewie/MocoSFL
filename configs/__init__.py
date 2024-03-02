@@ -101,6 +101,7 @@ def get_sfl_args():
     parser.add_argument('--pairloader_option', type=str, default="None", help="set a pairloader option (results in augmentation differences), only enable it in contrastive learning, choice: mocov1, mocov2")
     parser.add_argument('--K', type=int, default=6000, help="max number of keys stored in queue")
     parser.add_argument('--symmetric', action='store_true', default=False, help="enable symmetric contrastive loss, can improve accuracy")
+    parser.add_argument('--symmetric_original', action='store_true', default=False, help="original symmetric implementation ")
     parser.add_argument('--K_dim', type=int, default=128, help="dimension size of key")
     parser.add_argument('--T', type=float, default=0.1, help="Temperature of InfoCE loss")
     

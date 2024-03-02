@@ -26,7 +26,7 @@ import numpy as np
 
 
 class sflmoco_simulator(base_simulator):
-    def __init__(self, model: ResNet, criterion, train_loader, test_loader, per_client_test_loader, queue_matcher: QueueMatcher, args) -> None:
+    def __init__(self, model: ResNet, criterion, train_loader, test_loader, per_client_test_loader, queue_matcher: QueueMatcher, args, new_implementation=False) -> None:
         super().__init__(model, criterion, train_loader, test_loader, per_client_test_loader=per_client_test_loader, args=args)
 
         print(f"Clients x {self.num_client}")
@@ -50,31 +50,32 @@ class sflmoco_simulator(base_simulator):
             if args.moco_version != "byol":
                 server_input_size = self.model.get_smashed_data_size(1, args.data_size)
 
-                self.s_instance = create_sflmocoserver_personalized_instance(
-                    model=self.model.cloud,
-                    projector=self.model.classifier,
-                    criterion=criterion,
-                    args=args,
-                    server_input_size=server_input_size,
-                    feature_sharing=args.feature_sharing,
-                    queue_matcher=queue_matcher
-                )
-                params_to_optimize = (
-                        list(self.s_instance.model.parameters()) +
-                        list(self.s_instance.projector.parameters()) +
-                        ([self.s_instance.domain_tokens] if args.domain_tokens_override == "none" else [])
-                )
-
-                # # TODO deprecated, left for reference, doesn't support all functionalities of the new impl
-                # self.s_instance = create_sflmocoserver_instance(
-                #     model=self.model.cloud,
-                #     criterion=criterion,
-                #     args=args,
-                #     server_input_size=server_input_size,
-                #     feature_sharing=args.feature_sharing,
-                #     queue_matcher=queue_matcher
-                # )
-                # params_to_optimize = list(self.s_instance.model.parameters())
+                if new_implementation:
+                    self.s_instance = create_sflmocoserver_personalized_instance(
+                        model=self.model.cloud,
+                        projector=self.model.classifier,
+                        criterion=criterion,
+                        args=args,
+                        server_input_size=server_input_size,
+                        feature_sharing=args.feature_sharing,
+                        queue_matcher=queue_matcher
+                    )
+                    params_to_optimize = (
+                            list(self.s_instance.model.parameters()) +
+                            list(self.s_instance.projector.parameters()) +
+                            ([self.s_instance.domain_tokens] if args.domain_tokens_override == "none" else [])
+                    )
+                else:
+                    # TODO deprecated, left for reference, doesn't support all functionalities of the new impl
+                    self.s_instance = create_sflmocoserver_instance(
+                        model=self.model.cloud,
+                        criterion=criterion,
+                        args=args,
+                        server_input_size=server_input_size,
+                        feature_sharing=args.feature_sharing,
+                        queue_matcher=queue_matcher
+                    )
+                    params_to_optimize = list(self.s_instance.model.parameters())
             else:
                 self.s_instance = create_sflbyol_server_instance(
                     model=self.model.cloud,
@@ -516,6 +517,7 @@ class create_sflmocoserver_instance(create_base_instance):
         self.criterion = criterion
         self.t_model = copy.deepcopy(model)
         self.symmetric = args.symmetric
+        self.symmetric_original = args.symmetric_original
         self.batch_size = args.batch_size
         self.num_client = args.num_client
         for param_t in self.t_model.parameters():
@@ -681,7 +683,13 @@ class create_sflmocoserver_instance(create_base_instance):
         if update_momentum:
             self.update_moving_average(tau)
 
-        loss, accu, query_out, pkey_out = self.contrastive_loss(query, pkey, pool)
+        if self.symmetric_original:
+            loss12, accu, q1, k2 = self.contrastive_loss(query, pkey, pool)
+            loss21, accu, q2, k1 = self.contrastive_loss(pkey, query, pool)
+            loss = loss12 + loss21
+            pkey_out = torch.cat([k1, k2], dim = 0)
+        else:
+            loss, accu, query_out, pkey_out = self.contrastive_loss(query, pkey, pool)
 
         if enqueue:
             self._dequeue_and_enqueue(pkey_out, pool)
