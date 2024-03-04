@@ -457,10 +457,13 @@ class sflmoco_simulator(base_simulator):
             with torch.no_grad():
                 # generate feature bank
                 for i, (data, target) in enumerate(memloader[0]):
-                    output = self.model.local_list[client_id](data.cuda(non_blocking=True))
-                    output = self.model.cloud(output)
-                    output = avg_pool(output)
-                    feature = output.view(output.size(0), -1)
+                    if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
+                        output = self.model.local_list[client_id](data.cuda(non_blocking=True))
+                        output = self.model.cloud(output)
+                        output = avg_pool(output)
+                        feature = output.view(output.size(0), -1)
+                    else:
+                        feature = self.model(data.cuda(non_blocking=True), classifier=False)
                     feature = F.normalize(feature, dim=1)
                     feature_bank.append(feature)
                     feature_labels.append(target)
