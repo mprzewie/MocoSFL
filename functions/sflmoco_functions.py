@@ -133,8 +133,8 @@ class sflmoco_simulator(base_simulator):
         self.eval()  #set to eval mode
         criterion = nn.CrossEntropyLoss()
     
-        if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
-            self.model.unmerge_classifier_cloud()    
+        # if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
+        self.model.unmerge_classifier_cloud()
         # if self.data_size == 32:
         #     data_size_factor = 1
         # elif self.data_size == 64:
@@ -224,8 +224,8 @@ class sflmoco_simulator(base_simulator):
             })
             print(f"{client_id=} Epoch: {epoch}, linear eval accuracy - current: {avg_accu:.2f}, best: {best_avg_accu:.2f}")
     
-        if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
-            self.model.merge_classifier_cloud()
+        # if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
+        self.model.merge_classifier_cloud()
         
         self.train()  #set back to train mode
         return best_avg_accu
@@ -247,8 +247,8 @@ class sflmoco_simulator(base_simulator):
         self.eval()  # set to eval mode
         criterion = nn.CrossEntropyLoss()
 
-        if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
-            self.model.unmerge_classifier_cloud()
+        # if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
+        self.model.unmerge_classifier_cloud()
 
         # if self.data_size == 32:
         #     data_size_factor = 1
@@ -361,8 +361,8 @@ class sflmoco_simulator(base_simulator):
                     best_accuracy = prec1.item()
                     best_accuracy_train = prec_train.item()
 
-        if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
-            self.model.merge_classifier_cloud()
+        # if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
+        self.model.merge_classifier_cloud()
 
         self.train()  # set back to train mode
         return best_accuracy, best_accuracy_train
@@ -457,13 +457,16 @@ class sflmoco_simulator(base_simulator):
             with torch.no_grad():
                 # generate feature bank
                 for i, (data, target) in enumerate(memloader[0]):
+                    data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
+
                     if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
-                        output = self.model.local_list[client_id](data.cuda(non_blocking=True))
+                        output = self.model.local_list[client_id](data)
                         output = self.model.cloud(output)
                         output = avg_pool(output)
                         feature = output.view(output.size(0), -1)
                     else:
-                        feature = self.model(data.cuda(non_blocking=True), classifier=False)
+                        feature = self.model(data)
+
                     feature = F.normalize(feature, dim=1)
                     feature_bank.append(feature)
                     feature_labels.append(target)
@@ -476,10 +479,15 @@ class sflmoco_simulator(base_simulator):
 
                 for i, (data, target) in enumerate(self.validate_loader):
                     data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
-                    output = self.model.local_list[client_id](data)
-                    output = self.model.cloud(output)
-                    output = avg_pool(output)
-                    feature = output.view(output.size(0), -1)
+
+                    if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
+                        output = self.model.local_list[client_id](data)
+                        output = self.model.cloud(output)
+                        output = avg_pool(output)
+                        feature = output.view(output.size(0), -1)
+                    else:
+                        feature = self.model(data)
+
                     feature = F.normalize(feature, dim=1)
 
                     pred_labels = knn_predict(feature, feature_bank, feature_labels, classes, 200, 0.1)
