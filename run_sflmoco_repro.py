@@ -221,7 +221,7 @@ if args.initialze_path != "None":
     args.attack = True
 
 if args.cutlayer >= 1:
-    sfl.cuda()
+    sfl.cuda(pool=[])
 else:
     sfl.cpu()
 sfl.s_instance.cuda()
@@ -262,7 +262,9 @@ if not args.resume:
             pool = range(args.num_client)
         else:
             pool = np.random.choice(range(args.num_client), int(args.client_sample_ratio * args.num_client), replace=False) # 10 out of 1000
-        
+
+        sfl.cuda(pool=list(pool) + [0])
+        gc.collect()
         avg_loss = 0.0
         avg_accu = 0.0
         avg_gan_train_loss = 0.0

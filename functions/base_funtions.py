@@ -12,6 +12,7 @@ import os
 from collections import defaultdict
 from email.policy import strict
 from pathlib import Path
+from typing import List
 
 import torch
 import logging
@@ -212,10 +213,14 @@ class base_simulator:
         if self.s_instance is not None:
             self.s_instance.eval()
     
-    def cuda(self):
+    def cuda(self, pool: List[int] = None):
+        pool = pool or list(range(self.num_client))
         if self.c_instance_list: 
             for i in range(self.num_client):
-                self.c_instance_list[i].cuda()
+                if i in pool:
+                    self.c_instance_list[i].cuda()
+                else:
+                    self.c_instance_list[i].cpu()
         if self.s_instance is not None:
             self.s_instance.cuda()
 
