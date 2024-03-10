@@ -15,6 +15,7 @@ import math
 import torch.nn as nn
 import numpy as np
 from functions.base_funtions import base_simulator, create_base_instance
+import torch.multiprocessing as mp
 class sfl_simulator(base_simulator):
     def __init__(self, model, criterion, train_loader, test_loader, per_client_test_loaders, args) -> None:
         super().__init__(model, criterion, train_loader, test_loader,  per_client_test_loaders, args)
@@ -130,12 +131,24 @@ class loss_based_status():
             self.status = "A"
         self.epoch_recording[self.status] += 1
 
+def client_backward_single(c_model, c_grads, c_opt, c_sched):
+    c_model.backward(c_grads)
+    c_opt.step()
+    c_sched.step()
 
-def client_backward(sfl_simulator, pool, gradient_dict):
+def client_backward(sfl_simulator, pool, gradient_dict, args):
+    args_list = []
+    mp_pool = mp.Pool(args.num_mp_workers)
+
     for i, client_id in enumerate(pool):
-        sfl_simulator.c_instance_list[client_id].backward(gradient_dict[i])
-        sfl_simulator.c_optimizer_list[client_id].step()
-        sfl_simulator.c_scheduler_list[client_id].step()
+        args_tuple = (sfl_simulator.c_instance_list[client_id], gradient_dict[i], sfl_simulator.c_optimizer_list[client_id], sfl_simulator.c_scheduler_list[client_id])
+        args_list.append(args_tuple)
+        # sfl_simulator.c_instance_list[client_id].backward(gradient_dict[i])
+        # sfl_simulator.c_optimizer_list[client_id].step()
+        # sfl_simulator.c_scheduler_list[client_id].step()
+    mp_pool.starmap(client_backward_single, args_list)
+    # mp_pool.join()
+    mp_pool.close()
 
 if __name__ == '__main__':
     '''This is a tutorial on how to use them'''

@@ -29,6 +29,8 @@ def get_sfl_args():
     parser.add_argument('--num_epoch', type=int, default=200)
     parser.add_argument('--seed', type=int, default=1234)
     parser.add_argument('--num_workers', type=int, default=0)
+    parser.add_argument('--num_mp_workers', type=int, default=1)
+
     parser.add_argument('--batch_size', type=int, default=12)
     parser.add_argument('--data_dir', type=str, default='./data/')
     parser.add_argument('--output_dir', type=str, default='./outputs/')

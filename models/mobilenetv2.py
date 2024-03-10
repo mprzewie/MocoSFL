@@ -91,6 +91,7 @@ class Block_gn(nn.Module):
             )
 
     def forward(self, x):
+        # assert False, (x.shape, self.conv1, self.bn1)
         out = F.relu(self.bn1(self.conv1(x)))
         out = F.relu(self.bn2(self.conv2(out)))
         out = self.bn3(self.conv3(out))
@@ -106,6 +107,7 @@ class WSConv2d(nn.Conv2d): # This module is taken from https://github.com/joe-si
                  padding, dilation, groups, bias)
 
     def forward(self, x):
+        # assert False, x.shape
         weight = self.weight
         weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2,
                                   keepdim=True).mean(dim=3, keepdim=True)
@@ -132,6 +134,7 @@ class MobileNet(nn.Module):
     def __init__(self, feature, expansion = 1, num_client = 1, num_class = 10):
         super(MobileNet, self).__init__()
         # NOTE: change conv1 stride 2 -> 1 for CIFAR10
+        print(feature[0], feature[1])
         self.current_client = 0
         self.num_client = num_client
         self.expansion = expansion
@@ -364,6 +367,7 @@ def make_layers(cutting_layer, cfg, in_planes, adds_bottleneck = False, bottlene
 
 
 def MobileNetV2(cutting_layer, num_client = 1, num_class = 10, adds_bottleneck = False, bottleneck_option = "C8S1", batch_norm=True, group_norm = False, input_size = 32, c_residual = True, WS = True):
+    input_size=32
     return MobileNet(make_layers(cutting_layer,cfg, in_planes=input_size, adds_bottleneck = adds_bottleneck, bottleneck_option = bottleneck_option, group_norm = group_norm, residual=c_residual, WS = WS), expansion= 1, num_client = num_client, num_class = num_class)
 
 # def test():

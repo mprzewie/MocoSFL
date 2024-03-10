@@ -196,6 +196,7 @@ class Bottleneck_gn(nn.Module):
             )
 
     def forward(self, x):
+        print(x.shape)
         out = F.relu(self.bn1(self.conv1(x)))
         out = F.relu(self.bn2(self.conv2(out)))
         out = self.bn3(self.conv3(out))
@@ -243,6 +244,7 @@ class ResNet(nn.Module):
     '''
     def __init__(self, feature, expansion = 1, num_client = 1, num_class = 10, input_size = 32, merge_unmerge_allowed: bool = True):
         super(ResNet, self).__init__()
+        print(feature[0], feature[1])
         self.current_client = 0
         self.num_client = num_client
         self.expansion = expansion
