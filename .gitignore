@@ -142,3 +142,5 @@ replay_tensors/
 !expert_target_aware/**/*.tar
 !expert_target_aware/**/*.log
 !plots/*.png
+*.out
+wandb/
