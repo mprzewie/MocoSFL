@@ -17,6 +17,7 @@ from datasets import denormalize
 import numpy as np
 import torchvision.transforms as transforms
 from functions.pytorch_ssim import SSIM
+import wandb
 
 NUM_CHANNEL_GROUP = 4
 
@@ -307,7 +308,13 @@ class MIA_attacker():
         # switch to evaluate mode
         local_model.eval()
         file_id = 0
-        for i, (input, target) in enumerate(val_single_loader):
+        
+        if len(val_single_loader) == 1:
+            data_loader = val_single_loader[0]
+        else:
+            raise("The val_single_loader was expected to contain exactly one DataLoader.")
+
+        for i, (input, target) in enumerate(data_loader):
             # input = input.cuda(async=True)
             input = input.cuda()
             target = target.item()
@@ -411,7 +418,7 @@ class MIA_attacker():
                     torch.save(decoder.state_dict(), path_dict["model_path"])
                 
                 val_losses.update(val_loss.item(), ir.size(0))
-
+            wandb.log({"epoch_attack": epoch, "train_losses mean": train_losses.avg, "val_loss_mean": val_losses.avg})
             # torch.save(decoder.state_dict(), path_dict["model_path"])
             self.logger.debug(
                 "epoch [{}/{}], train_loss {train_losses.val:.4f} ({train_losses.avg:.4f}), val_loss {val_losses.val:.4f} ({val_losses.avg:.4f})".format(
@@ -453,6 +460,8 @@ class MIA_attacker():
             "SSIM Loss on ALL Image is {:.4f} (Real Attack Results on the Target Client)".format(ssim_test_losses.avg))
         self.logger.debug(
             "PSNR Loss on ALL Image is {:.4f} (Real Attack Results on the Target Client)".format(psnr_test_losses.avg))
+        
+        wandb.log({"MSE Loss": all_test_losses.avg, "SSIM Loss": ssim_test_losses.avg, "PSNR Loss":psnr_test_losses.avg})
         return all_test_losses.avg, ssim_test_losses.avg, psnr_test_losses.avg
     
 def save_images(input_imgs, output_imgs, epoch, path, offset=0, batch_size=64): # saved image from tensor to jpg
