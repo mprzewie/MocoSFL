@@ -98,9 +98,8 @@ class base_simulator:
     def fedavg(self, pool = None, divergence_aware = False, divergence_measure = False, fedavg_momentum_model:bool=False, do_fedavg: bool = True):
         global_weights = average_weights(self.model.local_list, pool)
         global_momentum_weights = average_weights([c.t_model for c in self.c_instance_list], pool)
-
-        if divergence_measure:
-            divergence_metrics = defaultdict(float)
+ 
+        divergence_metrics = defaultdict(float)
 
         divergence_metrics["div/fedavg"] = 1 if do_fedavg else 0
 
