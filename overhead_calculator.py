@@ -27,9 +27,9 @@ data_size=32
 num_class=10
 
 #Scheme related # Change Here
-scheme="FL" #SFL/FL
+scheme="SFL" #SFL/FL
 TAResSFL_enable = False
-cutlayer=2
+cutlayer=5
 adds_bottleneck = False
 bottleneck_option="C4S2"
 
@@ -111,8 +111,10 @@ print(f"Latent vector communication overhead: {communication_overhead_weight_lat
 print(f"Total communication overhead: {communication_overhead*4/1024/1024:.2f} MB")
 print("===============================")
 
+exit(0)
 #get_memory_usage
 global_model.local_list[0].cuda()
+global_model.cloud.cuda()
 noise_input = torch.ones([batch_size, input_channel_size, data_size, data_size])
 noise_label = torch.ones(global_model.get_smashed_data_size(batch_size, data_size))
 criterion = nn.MSELoss()

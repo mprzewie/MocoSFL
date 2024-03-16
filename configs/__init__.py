@@ -67,6 +67,7 @@ def get_sfl_args():
     parser.add_argument('--MIA_arch', type=str, default="custom", help="simulated MIA architecture, the more complex, the better quality")
     parser.add_argument('--attack', action='store_true', default=False, help="set MIA_attack option")
     parser.add_argument('--auto_adjust', action='store_true', default=False, help="auto_adjust some recommended hyperparameters")
+    parser.add_argument('--dont_adjust_batch_size_for_large_clients', action='store_true', default=False, help="omit adjusting batch_size from auto_adjust for clients > 100")
     parser.add_argument('--divergence_measure', action='store_true', default=False, help="for each fedavg, measure model divergence")
     parser.add_argument('--disable_feature_sharing', action='store_true', default=False, help="disable_feature_sharing")
     parser.add_argument('--initialze_path', type=str, default="None", help="set relative path to find the initial model, i.e.: ./outputs/expert/xx")
@@ -123,7 +124,6 @@ def get_sfl_args():
     parser.add_argument("--domain-tokens-override", default="none", choices=["none", "zero", "onehot"])
     parser.add_argument("--domainnet-subset", default=None, choices=["clipart", "infograph", "painting", "quickdraw", "real", "sketch", None])
 
-
     args = parser.parse_args()
 
     dataset_name_list = ["cifar10", "cifar100", "imagenet", "svhn", "stl10", "tinyimagenet", "imagenet12", "domainnet"]
@@ -154,7 +154,11 @@ def get_sfl_args():
             if args.num_client <= 50:
                 args.batch_size = args.batch_size // args.num_client
             else:
-                args.batch_size = 1
+                if args.dont_adjust_batch_size_for_large_clients:
+                    args.batch_size = args.batch_size // args.num_client
+                else:
+                    args.batch_size = 1
+
             print(f"{args.K=}")
             print(f"Auto adjusted batch-size from {prev_bs} to {args.batch_size}")
         else:
