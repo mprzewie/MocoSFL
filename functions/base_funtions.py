@@ -263,6 +263,15 @@ class base_simulator:
         torch.save({"local_models": [
             c.state_dict() for c in self.model.local_list
         ]}, self.output_dir + f'/checkpoint_locals_{epoch}.tar')
+        torch.save(
+            {
+                "c_optimizer": [c.state_dict() for c in self.c_optimizer_list],
+                "s_optimizer": self.s_optimizer.state_dict(),
+                "c_scheduler": [c.state_dict() for c in self.c_scheduler_list],
+                "s_scheduler": self.s_scheduler.state_dict(),
+            },
+            self.output_dir + f'/checkpoint_optimizer_scheduler.tar'
+        )
 
 
     def load_model(self, is_best=True, epoch=200, load_local_clients: bool = False):
