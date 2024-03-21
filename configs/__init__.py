@@ -134,19 +134,6 @@ def get_sfl_args():
         args.c_lr = args.lr
 
     '''Auto adjust fedavg frequency, batch size and client sampling ratio according to num_client'''
-    # if args.auto_adjust:
-    #     if args.num_client <= 50:
-    #         args.batch_size = 100 // args.num_client
-    #     else:
-    #         args.batch_size = 1
-    #
-    #     if args.num_client <= 1000:
-    #         args.avg_freq = 1000 // (args.batch_size * args.num_client) # num_step per epoch.
-    #
-    #     if args.num_client >= 200:
-    #         args.client_sample_ratio = 1 / (args.num_client // 100)
-    #     else:
-    #         args.client_sample_ratio = 1.0
 
     if args.auto_adjust:
         if not args.disable_feature_sharing:
