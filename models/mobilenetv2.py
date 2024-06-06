@@ -363,7 +363,7 @@ def make_layers(cutting_layer, cfg, in_planes, adds_bottleneck = False, bottlene
         return nn.Sequential(*local_layer_list), nn.Sequential(*cloud_layer_list)
 
 
-def MobileNetV2(cutting_layer, num_client = 1, num_class = 10, adds_bottleneck = False, bottleneck_option = "C8S1", batch_norm=True, group_norm = False, input_size = 32, c_residual = True, WS = True, merge_unmerge_allowed=True):
+def MobileNetV2(cutting_layer, num_client = 1, num_class = 10, adds_bottleneck = False, bottleneck_option = "C8S1", batch_norm=True, group_norm = False, input_size = 32, c_residual = True, WS = True):
     return MobileNet(make_layers(cutting_layer,cfg, in_planes=input_size, adds_bottleneck = adds_bottleneck, bottleneck_option = bottleneck_option, group_norm = group_norm, residual=c_residual, WS = WS), expansion= 1, num_client = num_client, num_class = num_class)
 
 # def test():

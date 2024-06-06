@@ -45,8 +45,9 @@ class base_simulator:
         print(f"Layer keys: {layer_keys}")
         M = len(layer_keys)
 
+
         layerwise_lambdas = [
-            layerwise_lambda(args.div_lambda, i+1, M, args.div_layerwise)
+            args.div_lammbda #layerwise_lambda(args.div_lambda, i+1, M, args.div_layerwise)
             for i in range(M)
         ]
         print(f"Layer lambdas: {layerwise_lambdas}")

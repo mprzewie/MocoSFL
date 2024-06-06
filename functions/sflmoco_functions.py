@@ -26,7 +26,9 @@ import numpy as np
 
 
 class sflmoco_simulator(base_simulator):
-    def __init__(self, model: ResNet, criterion, train_loader, test_loader, per_client_test_loader, queue_matcher: QueueMatcher, args, new_implementation=False) -> None:
+    def __init__(self, model: ResNet, criterion, train_loader, test_loader, per_client_test_loader,
+                 # queue_matcher: QueueMatcher,
+                 args) -> None:
         super().__init__(model, criterion, train_loader, test_loader, per_client_test_loader=per_client_test_loader, args=args)
 
         print(f"Clients x {self.num_client}")
@@ -47,45 +49,19 @@ class sflmoco_simulator(base_simulator):
         # Create server instances
         if self.model.cloud is not None:
 
-            if args.moco_version != "byol":
-                server_input_size = self.model.get_smashed_data_size(1, args.data_size)
+            server_input_size = self.model.get_smashed_data_size(1, args.data_size)
 
-                if new_implementation:
-                    self.s_instance = create_sflmocoserver_personalized_instance(
-                        model=self.model.cloud,
-                        projector=self.model.classifier,
-                        criterion=criterion,
-                        args=args,
-                        server_input_size=server_input_size,
-                        feature_sharing=args.feature_sharing,
-                        queue_matcher=queue_matcher
-                    )
-                    params_to_optimize = (
-                            list(self.s_instance.model.parameters()) +
-                            list(self.s_instance.projector.parameters()) +
-                            ([self.s_instance.domain_tokens] if args.domain_tokens_override == "none" else [])
-                    )
-                else:
-                    # TODO deprecated, left for reference, doesn't support all functionalities of the new impl
-                    self.s_instance = create_sflmocoserver_instance(
-                        model=self.model.cloud,
-                        criterion=criterion,
-                        args=args,
-                        server_input_size=server_input_size,
-                        feature_sharing=args.feature_sharing,
-                        queue_matcher=queue_matcher
-                    )
-                    params_to_optimize = list(self.s_instance.model.parameters())
-            else:
-                self.s_instance = create_sflbyol_server_instance(
-                    model=self.model.cloud,
-                    predictor=self.model.predictor,
-                    criterion=None,
-                    args=args,
-                    server_input_size=self.model.get_smashed_data_size(1, args.data_size),
-                    feature_sharing=args.feature_sharing
-                )
-                params_to_optimize = list(self.s_instance.model.parameters()) + list(self.s_instance.predictor.parameters())
+
+            self.s_instance = create_sflmocoserver_instance(
+                model=self.model.cloud,
+                criterion=criterion,
+                args=args,
+                server_input_size=server_input_size,
+                feature_sharing=args.feature_sharing,
+                # queue_matcher=queue_matcher
+            )
+            params_to_optimize = list(self.s_instance.model.parameters())
+
 
             self.s_optimizer = torch.optim.SGD(params_to_optimize, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
@@ -224,148 +200,12 @@ class sflmoco_simulator(base_simulator):
             })
             print(f"{client_id=} Epoch: {epoch}, linear eval accuracy - current: {avg_accu:.2f}, best: {best_avg_accu:.2f}")
     
-        # if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
         self.model.merge_classifier_cloud()
         
         self.train()  #set back to train mode
         return best_avg_accu
 
-    def linear_eval_v2(self, memloader, num_epochs=100, lr=3.0, client_id: Optional[int] = None,  dataset_id: Optional[int] = None, num_ws_to_check=5,):  # Use linear evaluation
-        """
-        Run Linear evaluation
-        """
-        assert (
-                (memloader is None or client_id is None)
-                and
-                ((memloader is not None) or (client_id is not None))
-        ), f"Exactly one of memloader / client_id must be None. {client_id=}"
 
-        if client_id is not None:
-            assert dataset_id is not None
-
-        self.cuda()
-        self.eval()  # set to eval mode
-        criterion = nn.CrossEntropyLoss()
-
-        # if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
-        self.model.unmerge_classifier_cloud()
-
-        # if self.data_size == 32:
-        #     data_size_factor = 1
-        # elif self.data_size == 64:
-        #     data_size_factor = 4
-        # elif self.data_size == 96:
-        #     data_size_factor = 9
-        # classifier_list = [nn.Linear(self.K_dim * self.model.expansion, self.num_class)]
-
-        if "ResNet" in self.arch or "resnet" in self.arch:
-            if "resnet" in self.arch:
-                self.arch = "ResNet" + self.arch.split("resnet")[-1]
-            output_dim = 512
-        elif "vgg" in self.arch:
-            output_dim = 512
-        elif "MobileNetV2" in self.arch:
-            output_dim = 1280
-
-        classifier_list = [nn.Linear(output_dim * self.model.expansion, self.num_class)]
-        linear_classifier = nn.Sequential(*classifier_list)
-
-
-        avg_pool = nn.AdaptiveAvgPool2d((1, 1))
-        local_model_id = client_id if client_id is not None else 0
-
-
-        train_loader = memloader[0] if memloader is not None else self.client_dataloader[dataset_id]
-        test_loader = self.validate_loader if memloader is not None else self.per_client_test_loaders[dataset_id]
-        with torch.no_grad():
-            train_features = []
-            train_labels = []
-            for input, label in tqdm(train_loader, f"[{client_id}_{dataset_id}] Collecting train features"):
-                if client_id is not None:
-                    input = input[0]  # we take only one image from the pair
-                output = self.model.local_list[local_model_id](input.cuda())
-                output = self.model.cloud(output)
-                output = avg_pool(output)
-                output = output.view(output.size(0), -1)
-                train_features.append(output.detach())
-                train_labels.append(label)
-
-            train_features = torch.cat(train_features).cuda()
-            train_labels = torch.cat(train_labels).cuda()
-
-            test_features = []
-            test_labels = []
-
-            for input, label in tqdm(test_loader, f"[{client_id}_{dataset_id}] Collecting test features"):
-
-                output = self.model.local_list[local_model_id](input.cuda())
-                output = self.model.cloud(output)
-                output = avg_pool(output)
-                output = output.view(output.size(0), -1)
-                test_features.append(output.detach())
-                test_labels.append(label)
-
-            test_features = torch.cat(test_features).cuda()
-            test_labels = torch.cat(test_labels).cuda()
-
-        best_acc = 0.
-        best_w = 0.
-        best_classifier = None
-
-        optim_kwargs = {
-            'line_search_fn': 'strong_wolfe',
-            'max_iter': 5000,
-            'lr': 1.,
-            'tolerance_grad': 1e-10,
-            'tolerance_change': 0,
-        }
-
-        def build_step(X, Y, classifier, optimizer, w, criterion_fn):
-            def step():
-                optimizer.zero_grad()
-                loss = criterion_fn(classifier(X), Y, reduction='sum')
-                for p in classifier.parameters():
-                    loss = loss + p.pow(2).sum().mul(w)
-                loss.backward()
-                return loss
-
-            return step
-
-        best_accuracy = 0
-        best_accuracy_train = 0
-        for w in torch.logspace(-6, 5, steps=num_ws_to_check).tolist():
-            linear_classifier.apply(init_weights)
-
-            linear_classifier.cuda()
-            linear_classifier.train()
-            optimizer = torch.optim.LBFGS(linear_classifier.parameters(), **optim_kwargs)
-
-            optimizer.step(
-                build_step(train_features, train_labels, linear_classifier, optimizer, w, criterion_fn=torch.nn.functional.cross_entropy))
-
-            with torch.no_grad():
-                y_test_pred = linear_classifier(test_features)
-                prec1 = accuracy(y_test_pred, test_labels)[0]
-
-                y_train_pred = linear_classifier(train_features)
-                prec_train = accuracy(y_train_pred, train_labels)[0]
-
-                self.log_metrics(
-                    {
-                        f"val_linear_v2/c{client_id}_d{dataset_id}/w": w,
-                        f"val_linear_v2/c{client_id}_d{dataset_id}/acc": prec1
-                    },
-                    verbose=(prec1 > best_accuracy)
-                )
-                if prec1 > best_accuracy:
-                    best_accuracy = prec1.item()
-                    best_accuracy_train = prec_train.item()
-
-        # if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
-        self.model.merge_classifier_cloud()
-
-        self.train()  # set back to train mode
-        return best_accuracy, best_accuracy_train
 
 
     def semisupervise_eval(self, memloader, num_epochs = 100, lr = 3.0): # Use semi-supervised learning as evaluation
@@ -459,13 +299,13 @@ class sflmoco_simulator(base_simulator):
                 for i, (data, target) in enumerate(memloader[0]):
                     data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
 
-                    if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
-                        output = self.model.local_list[client_id](data)
-                        output = self.model.cloud(output)
-                        output = avg_pool(output)
-                        feature = output.view(output.size(0), -1)
-                    else:
-                        feature = self.model(data)
+                    # if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
+                    #     output = self.model.local_list[client_id](data)
+                    #     output = self.model.cloud(output)
+                    #     output = avg_pool(output)
+                    #     feature = output.view(output.size(0), -1)
+                    # else:
+                    feature = self.model(data)
 
                     feature = F.normalize(feature, dim=1)
                     feature_bank.append(feature)
@@ -480,13 +320,13 @@ class sflmoco_simulator(base_simulator):
                 for i, (data, target) in enumerate(self.validate_loader):
                     data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
 
-                    if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
-                        output = self.model.local_list[client_id](data)
-                        output = self.model.cloud(output)
-                        output = avg_pool(output)
-                        feature = output.view(output.size(0), -1)
-                    else:
-                        feature = self.model(data)
+                    # if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
+                    #     output = self.model.local_list[client_id](data)
+                    #     output = self.model.cloud(output)
+                    #     output = avg_pool(output)
+                    #     feature = output.view(output.size(0), -1)
+                    # else:
+                    feature = self.model(data)
 
                     feature = F.normalize(feature, dim=1)
 
@@ -523,7 +363,9 @@ class sflmoco_simulator(base_simulator):
         return test_acc_1
 
 class create_sflmocoserver_instance(create_base_instance):
-    def __init__(self, model, criterion, args, queue_matcher: QueueMatcher, server_input_size = 1, feature_sharing = True) -> None:
+    def __init__(self, model, criterion, args,
+                 # queue_matcher: QueueMatcher,
+                 server_input_size = 1, feature_sharing = True) -> None:
         super().__init__(model)
         self.criterion = criterion
         self.t_model = copy.deepcopy(model)
@@ -536,7 +378,7 @@ class create_sflmocoserver_instance(create_base_instance):
 
         self.K = args.K
         self.T = args.T
-        self.queue_matcher = queue_matcher
+        # self.queue_matcher = queue_matcher
 
         self.feature_sharing = feature_sharing
         if self.feature_sharing:
@@ -660,12 +502,11 @@ class create_sflmocoserver_instance(create_base_instance):
             if pool is None:
                 pool = range(self.num_client)
             l_neg_list = []
-            matched_queues = self.queue_matcher.match_client_queues(queues=self.queue)
             for client_id in pool:
                 l_neg_list.append(torch.einsum(
                     'nc,ck->nk', [
                         query_out[client_id*step_size:(client_id + 1)*step_size],
-                        matched_queues[client_id].clone().detach()
+                        self.queue[client_id].clone().detach()
                     ]
                 ))
             l_neg = torch.cat(l_neg_list, dim = 0)
@@ -758,291 +599,5 @@ class create_sflmococlient_instance(create_base_instance):
     def cpu(self):
         self.model.cpu()
         self.t_model.cpu()
-
-
-class create_sflbyol_server_instance(create_sflmocoserver_instance):
-    def __init__(self, model, predictor, criterion, args, server_input_size = 1, feature_sharing = True):
-        super().__init__(model, criterion, args, server_input_size=server_input_size, feature_sharing=feature_sharing)
-        raise NotImplementedError()
-        self.predictor = predictor
-
-
-    def contrastive_loss(self, query, pkey, pool = None):
-        raise NotImplementedError("go BYOL yourself")
-
-    def compute(self, query, pkey, update_momentum = True, enqueue = True, tau = 0.99, pool = None):
-        assert query.requires_grad         # query.requires_grad=True
-
-        query.retain_grad()
-
-        if update_momentum:
-            self.update_moving_average(tau)
-
-        if self.symmetric:
-            assert False, "probably not allowed"
-            # loss12, accu, q1, k2 = self.contrastive_loss(query, pkey, pool)
-            # loss21, accu, q2, k1 = self.contrastive_loss(pkey, query, pool)
-            # loss = loss12 + loss21
-            # pkey_out = torch.cat([k1, k2], dim = 0)
-        else:
-            query_out = self.model(query)
-            query_out_pred = self.predictor(query_out)
-
-            # query_out = nn.functional.normalize(query_out, dim=1)
-
-            with torch.no_grad():  # no gradient to keys
-                pkey_, idx_unshuffle = self._batch_shuffle_single_gpu(pkey)
-                pkey_out = self.t_model(pkey_)
-                pkey_out = self._batch_unshuffle_single_gpu(pkey_out, idx_unshuffle)
-
-
-            loss = -2 * F.cosine_similarity(query_out_pred, pkey_out.detach(), dim=-1).mean()
-
-
-        error = loss.detach().cpu().numpy()
-
-        if query.grad is not None:
-            query.grad.zero_()
-
-        # loss.backward(retain_graph = True)
-        loss.backward()
-
-        gradient = query.grad.detach().clone() # get gradient, the -1 is important, since updates are added to the weights in cpp.
-
-        return error, gradient, 0
-    def cuda(self):
-        self.model.cuda()
-        self.t_model.cuda()
-        self.predictor.cuda()
-
-    def cpu(self):
-        self.model.cpu()
-        self.t_model.cpu()
-        self.predictor.cpu()
-
-class create_sflmocoserver_personalized_instance(create_sflmocoserver_instance):
-    def __init__(self, model, projector, criterion, args, queue_matcher: QueueMatcher, server_input_size = 1, feature_sharing = True):
-        super().__init__(model, criterion, args, queue_matcher, server_input_size, feature_sharing)
-        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.projector = projector
-        self.t_projector = copy.deepcopy(projector)
-        self.projection_space = args.projection_space
-
-        self.domain_tokens = nn.Parameter(
-            torch.randn(
-                args.num_client, args.domain_tokens_shape,
-                device=("cuda" if torch.cuda.is_available() else "cpu")
-            )
-        )
-
-        if args.domain_tokens_override != "none":
-            if args.domain_tokens_override == "zero":
-                self.domain_tokens = torch.zeros(args.num_client, args.domain_tokens_shape)
-            elif args.domain_tokens_override in ["onehot"]:
-                self.domain_tokens = torch.zeros(args.num_client, args.num_client)
-                idx = torch.arange(args.num_client)
-                self.domain_tokens[idx, idx] = 1
-
-            self.domain_tokens = self.domain_tokens.cuda()
-
-        self.domain_tokens_injection = args.domain_tokens_injection
-
-
-    def cuda(self):
-        super().cuda()
-        self.projector.cuda()
-        self.t_projector.cuda()
-        self.domain_tokens.cuda()
-
-    def cpu(self):
-        super().cpu()
-        self.projector.cpu()
-        self.t_projector.cpu()
-        self.domain_tokens.cpu()
-
-    def forward(self, input):
-        raise NotImplementedError("forward")
-    def compute(
-            self, queries_from_clients: List[torch.Tensor], pkeys_from_clients: List[torch.Tensor],
-            update_momentum = True, enqueue = True, tau = 0.99, pool = None
-    ):
-        assert [q.shape for q in queries_from_clients] == [k.shape for k in pkeys_from_clients], ([q.shape for q in queries_from_clients], [k.shape for k in pkeys_from_clients])
-        assert len(queries_from_clients) == len(pool)
-
-        for q in queries_from_clients:
-            q.requires_grad = True
-            q.retain_grad()
-
-        if update_momentum:
-            self.update_moving_average(tau)
-
-        stack_query =  torch.cat(queries_from_clients, dim = 0)
-        stack_pkey =  torch.cat(pkeys_from_clients, dim = 0)
-        ui = 0
-        unstack_indices = []
-        for q in queries_from_clients:
-            s = ui
-            e = ui + len(q)
-            ui = e
-            unstack_indices.append((s, e))
-
-        stack_query_from_cloud = self.avg_pool(self.model(stack_query)).squeeze()
-
-        with torch.no_grad():
-            shuffle_stack_pkey, idx_unshuffle = self._batch_shuffle_single_gpu(stack_pkey)
-            shuffle_stack_pkey_from_cloud = self.avg_pool(self.t_model(shuffle_stack_pkey)).squeeze()
-            stack_pkey_from_cloud = self._batch_unshuffle_single_gpu(shuffle_stack_pkey_from_cloud, idx_unshuffle)
-
-        unstack_query_from_cloud = [
-            stack_query_from_cloud[s:e]
-            for (s, e) in unstack_indices
-        ]
-        unstack_pkey_from_cloud = [
-            stack_pkey_from_cloud[s:e]
-            for (s, e) in unstack_indices
-        ]
-
-        unstack_domain_tokens = [
-            self.domain_tokens[p].unsqueeze(0).repeat(len(uqc), 1)
-            for p, uqc in zip(pool, unstack_query_from_cloud)
-        ]
-
-        unstack_query_from_cloud_joined_with_domain = [
-            self.join_image_and_domain_embeddings(image_embeddings=uqc, domain_embeddings=dt)
-            for uqc, dt in zip(unstack_query_from_cloud, unstack_domain_tokens)
-        ]
-
-        unstack_pkey_from_cloud_joined_with_domain = [
-            self.join_image_and_domain_embeddings(image_embeddings=upc, domain_embeddings=dt)
-            for upc, dt in zip(unstack_pkey_from_cloud, unstack_domain_tokens)
-        ]
-
-        stack_query_from_cloud_joined_with_domain = torch.cat(unstack_query_from_cloud_joined_with_domain, dim=0)
-        stack_pkey_from_cloud_joined_with_domain = torch.cat(unstack_pkey_from_cloud_joined_with_domain, dim=0)
-
-        # TODO - domain-based tokens
-        if isinstance(self.projector, nn.ModuleList):
-            unstack_query_from_projector = [
-                nn.functional.normalize(self.projector[p](uqc), dim=1)
-                for p, uqc in zip(pool, unstack_query_from_cloud_joined_with_domain)
-            ]
-            stack_query_from_projector = torch.cat(unstack_query_from_projector, dim=0)
-
-            with torch.no_grad():
-                unstack_pkey_from_projector = [
-                    nn.functional.normalize(self.t_projector[p](upc), dim=1)
-                    for p, upc in zip(pool, unstack_pkey_from_cloud_joined_with_domain)
-                ]
-                stack_pkey_from_projector = torch.cat(unstack_pkey_from_projector, dim=0)
-
-        else:
-            stack_query_from_projector = nn.functional.normalize(
-                self.projector(stack_query_from_cloud_joined_with_domain),
-                dim=1
-            )
-
-            with torch.no_grad():
-                stack_pkey_from_projector = nn.functional.normalize(
-                    self.t_projector(stack_pkey_from_cloud_joined_with_domain),
-                    dim=1
-                )
-
-        l_pos = torch.einsum('nc,nc->n', [stack_query_from_projector, stack_pkey_from_projector]).unsqueeze(-1)
-        pool = range(self.num_client) if pool is None else pool
-
-        if self.projection_space == "common":
-            if self.feature_sharing:
-                l_neg = torch.einsum('nc,ck->nk', [stack_query_from_projector, self.queue.clone().detach()])
-            else:
-                l_neg_list = []
-                matched_queues = self.queue_matcher.match_client_queues(queues=self.queue)
-                for c_id, (s, e) in zip(pool, unstack_indices):
-                    l_neg_list.append(torch.einsum(
-                        'nc,ck->nk', [
-                            stack_query_from_projector[s:e],
-                            matched_queues[c_id].clone().detach()
-                        ]
-                    ))
-                l_neg = torch.cat(l_neg_list, dim=0)
-
-            if enqueue:
-                self._dequeue_and_enqueue(stack_pkey_from_projector, pool)
-                # in queue we keep joint projected representations of images and their respective domains
-        else:
-            matched_queues = self.queue_matcher.match_client_queues(queues=self.queue)
-            assert not self.feature_sharing, "Cannot share features here"
-            l_neg_list = []
-
-            for c_id, (s, e) in zip(pool, unstack_indices):
-                matched_queue_for_client = matched_queues[c_id].T
-                domain_tokens_for_queue = self.domain_tokens[c_id].unsqueeze(0).repeat(len(matched_queue_for_client), 1)
-                matched_queue_for_client_joined_with_domain = self.join_image_and_domain_embeddings(
-                    image_embeddings=matched_queue_for_client, domain_embeddings=domain_tokens_for_queue
-                )
-                projector_to_use = (
-                    self.t_projector[c_id]
-                    if isinstance(self.t_projector, nn.ModuleList)
-                    else self.t_projector
-                )
-                with torch.no_grad():
-                    projected_queue_for_client = nn.functional.normalize(
-                        projector_to_use(matched_queue_for_client_joined_with_domain),
-                        dim=1
-                    ).T
-
-                l_neg_list.append(torch.einsum(
-                    'nc,ck->nk', [
-                        stack_query_from_projector[s:e],
-                        projected_queue_for_client.clone().detach()
-                    ]
-                ))
-            l_neg = torch.cat(l_neg_list, dim=0)
-            if enqueue:
-                self._dequeue_and_enqueue(stack_pkey_from_cloud, pool)
-                # in queue we keep representations of images *without* domains, so that we can personalize them during projection
-
-
-        logits = torch.cat([l_pos, l_neg], dim=1)
-        logits /= self.T
-        labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
-        loss = self.criterion(logits, labels)
-        accu = accuracy(logits, labels)
-
-        assert all([q.grad is None for q in queries_from_clients]), [q.grad is None for q in queries_from_clients]
-
-        error = loss.detach().cpu().numpy()
-        loss.backward()
-
-        gradients = torch.cat([
-            q.grad.detach().clone()
-            for q in queries_from_clients
-        ], dim=0)
-
-        return error, gradients, accu[0]
-
-    def update_moving_average(self, tau: float=0.99):
-        super().update_moving_average(tau=tau)
-        for online, target in zip(self.projector.parameters(), self.t_projector.parameters()):
-            target.data = tau * target.data + (1 - tau) * online.data
-
-
-    def join_image_and_domain_embeddings(self, image_embeddings: torch.Tensor, domain_embeddings: torch.Tensor) -> torch.Tensor:
-        if self.domain_tokens_injection == "none":
-            return image_embeddings
-
-        if self.domain_tokens_injection == "add":
-            assert image_embeddings.shape == domain_embeddings.shape
-            return image_embeddings + domain_embeddings
-
-        if self.domain_tokens_injection == "mul":
-            assert image_embeddings.shape == domain_embeddings.shape
-            return image_embeddings * domain_embeddings
-
-        if self.domain_tokens_injection == "cat":
-            assert len(image_embeddings) == len(domain_embeddings)
-            return torch.cat([image_embeddings, domain_embeddings], dim=1)
-
-        raise NotImplementedError(self.domain_tokens_injection)
-
 
 

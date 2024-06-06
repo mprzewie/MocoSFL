@@ -2,15 +2,12 @@
 '''
 MocoSFL
 '''
-import random
-from cmath import inf
-import functools
 from copy import deepcopy
 
 import torch
-# override calls to cuda()
 
 if not torch.cuda.is_available():
+    # when developing w/o GPU it can be useful to override calls to CUDA
     assert False, "cuda not available"
     torch.Tensor.cuda = lambda self, *args, **kwargs: torch.Tensor.cpu(self)
     torch.nn.Module.cuda = lambda self, *args, **kwargs: torch.nn.Module.cpu(self)
@@ -22,20 +19,16 @@ import torch
 import torch.nn as nn
 import numpy as np
 from models import resnet
-from models import vgg
 from models import mobilenetv2
 from models.resnet import init_weights
-from functions.sflmoco_functions import sflmoco_simulator, create_sflmocoserver_personalized_instance
+from functions.sflmoco_functions import sflmoco_simulator
 from functions.sfl_functions import client_backward, loss_based_status
 from functions.attack_functions import MIA_attacker, MIA_simulator
 import gc
-from utils import get_client_iou_matrix, get_time
+from utils import get_time
 from queue_selection import get_queue_matcher, get_gradient_matcher
 
 VERBOSE = False
-import seaborn as sns
-import matplotlib.pyplot as plt
-import wandb
 
 get_time()
 #get default args
@@ -45,7 +38,7 @@ set_deterministic(args.seed)
 '''Preparing'''
 #get data
 create_dataset = getattr(datasets, f"get_{args.dataset}")
-kwargs = dict(subset=args.domainnet_subset) if args.dataset == "domainnet" else dict()
+# kwargs = dict(subset=args.domainnet_subset) if args.dataset == "domainnet" else dict()
 (
     per_client_train_loaders,
     mem_loader,
@@ -57,7 +50,7 @@ kwargs = dict(subset=args.domainnet_subset) if args.dataset == "domainnet" else 
     num_client = args.num_client, data_proportion = args.data_proportion,
     noniid_ratio = args.noniid_ratio, augmentation_option = True,
     pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string,
-    **kwargs
+    # **kwargs
 )
 get_time()
 num_batch = len(per_client_train_loaders[0])
@@ -106,20 +99,11 @@ for k, v in per_client_test_loaders.items():
         break
 
 get_time()
-# args.client_info = {}
-# for i, ld in enumerate(per_client_train_loaders):
-#     total_examples = sum(len(batch_data) for batch_data, _ in ld)
-#     labels = sorted(set(label for _, label_set in ld for label in label_set))
-#     args.client_info[i] = {"num_training_examples": total_examples, "labels": labels}
-
 
 if "ResNet" in args.arch or "resnet" in args.arch:
     if "resnet" in args.arch:
         args.arch = "ResNet" + args.arch.split("resnet")[-1]
     create_arch = getattr(resnet, args.arch)
-    output_dim = 512
-elif "vgg" in args.arch:
-    create_arch =  getattr(vgg, args.arch)
     output_dim = 512
 elif "MobileNetV2" in args.arch:
     create_arch =  getattr(mobilenetv2, args.arch)
@@ -135,12 +119,12 @@ predictor_list = []
 
 projector_input_dim = output_dim * global_model.expansion
 
-if args.domain_tokens_injection == "cat":
-    projector_input_dim = (
-        (projector_input_dim + args.domain_tokens_shape)
-        if args.domain_tokens_override != "onehot" 
-        else (projector_input_dim + + args.num_client)
-    )
+# if args.domain_tokens_injection == "cat":
+#     projector_input_dim = (
+#         (projector_input_dim + args.domain_tokens_shape)
+#         if args.domain_tokens_override != "onehot"
+#         else (projector_input_dim + + args.num_client)
+#     )
 
 if args.mlp:
     if args.moco_version == "largeV2": # This one uses a larger classifier, same as in Zhuang et al. Divergence-aware paper
@@ -177,20 +161,20 @@ if args.mlp:
     predictor = nn.Sequential(*predictor_list)
     predictor.apply(init_weights)
 
-    if not args.sep_proj:
-        global_model.classifier = projector
-        global_model.predictor = predictor
+    # if not args.sep_proj:
+    global_model.classifier = projector
+    global_model.predictor = predictor
 
-    else:
-        # assert len(global_model.cloud)==0, f"{len(global_model.cloud)=}, but should be 0!"
-        projectors = []
-        predictors = []
-        for _ in range(args.num_client):
-            projectors.append(deepcopy(projector))
-            predictors.append(deepcopy(predictor))
-
-        global_model.classifier = nn.ModuleList(projectors)
-        global_model.predictor = nn.ModuleList(predictors)
+    # else:
+    #     # assert len(global_model.cloud)==0, f"{len(global_model.cloud)=}, but should be 0!"
+    #     projectors = []
+    #     predictors = []
+    #     for _ in range(args.num_client):
+    #         projectors.append(deepcopy(projector))
+    #         predictors.append(deepcopy(predictor))
+    #
+    #     global_model.classifier = nn.ModuleList(projectors)
+    #     global_model.predictor = nn.ModuleList(predictors)
 
 
 
@@ -199,18 +183,18 @@ global_model.merge_classifier_cloud()
 #get loss function
 criterion = nn.CrossEntropyLoss().cuda()
 
-qmatcher = get_queue_matcher(args)
-gmatcher = get_gradient_matcher(args)
+# qmatcher = get_queue_matcher(args)
+# gmatcher = get_gradient_matcher(args)
 
-print(qmatcher)
+# print(qmatcher)
 get_time()
 #initialize sfl
 sfl = sflmoco_simulator(
     global_model, criterion, per_client_train_loaders, test_loader,
     per_client_test_loader=per_client_test_loaders, args=args,
     # queue_matcher=NoOpQueueMatcher()
-    queue_matcher=qmatcher,
-    new_implementation=NEW_IMPLEMENTATION
+    # queue_matcher=qmatcher,
+    # new_implementation=NEW_IMPLEMENTATION
 )
 get_time()
 
@@ -322,25 +306,16 @@ if not args.resume:
             sfl.s_optimizer.zero_grad()
             #server compute
 
-            if isinstance(sfl.s_instance, create_sflmocoserver_personalized_instance):
-                loss, gradient, accu = sfl.s_instance.compute(
-                    hidden_query_list, hidden_pkey_list, pool=pool
-                )
-            else:
-                loss, gradient, accu = sfl.s_instance.compute(
-                    stack_hidden_query, stack_hidden_pkey,
-                    pool = pool
-                )
+            loss, gradient, accu = sfl.s_instance.compute(
+                stack_hidden_query, stack_hidden_pkey,
+                pool = pool
+            )
 
-            # assert False, (hidden_query_list_pre_projector[0].shape, hidden_query_list[0].shape, hidden_query_list_pre_projector[0].grad)
             if isinstance(sfl.s_instance.model, nn.ModuleList):
                 gradient =  torch.cat([hq.grad for hq in hidden_query_list_pre_projector], dim = 0)
 
             sfl.s_optimizer.step() # with reduced step, to simulate a large batch size.
 
-
-            # if VERBOSE and :
-                # sfl.log(f"epoch {epoch} batch {batch}, loss {loss}")
             sfl.log_metrics(
                 {
                     "epoch": epoch,
@@ -393,7 +368,6 @@ if not args.resume:
                         avg_gan_train_loss += gan_train_loss
                         avg_gan_eval_loss += gan_eval_loss
 
-                gradient_dict = gmatcher.match_gradient_dict(gradient_dict)
                 client_backward(sfl, pool, gradient_dict)
             else:
                 # (optional) step client scheduler (lower its LR)
@@ -405,11 +379,6 @@ if not args.resume:
 
 
             if divergence_metrics is not None:
-                # groups = {k.split("/")[0] for k in divergence_metrics.keys()}
-                # for g in groups:
-                #     g_metrics_values = [divergence_metrics[n] for n in divergence_metrics.keys() if n.startswith(f"{g}/")]
-                #     divergence_metrics[f"{g}/mean"] =np.mean(g_metrics_values)
-                #     divergence_metrics[f"{g}/std"] =np.mean(g_metrics_values)
                 sfl.log_metrics({
                         f"fl/{k}": v
                         for (k,v) in divergence_metrics.items()
@@ -472,73 +441,10 @@ if not args.dataset == 'domainnet':
 else:
     eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 1.0, False, path_to_data="./data/DomainNet/rawdata")
 
-val_acc, _ = sfl.linear_eval_v2(eval_loader, 100)
-sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
-metrics_test["test_linear/global"] = val_acc
-
 val_acc = sfl.linear_eval(eval_loader, 100)
 sfl.log(f"final linear-probe evaluation accuracy is {val_acc:.2f}")
 metrics_test["test_linear/global_v1"] = val_acc
 
-# # load model that has the lowest contrastive loss.
-# sfl.load_model(load_local_clients=True)
-
-# n_datasets = len(sfl.per_client_test_loaders.keys())
-# client_square_accuracies_test = np.ones((args.num_client, n_datasets)) * -1
-# client_diagonal_accuracies_test = []
-
-# client_square_accuracies_train = np.ones((args.num_client, n_datasets)) * -1
-# client_diagonal_accuracies_train = []
-
-# for client_id in range(args.num_client):
-#     for dataset_id in sfl.per_client_test_loaders.keys():
-#         if args.eval_personalized != "square" and (client_id != dataset_id):
-#             continue
-
-#         client_test_acc, client_train_acc = sfl.linear_eval_v2(memloader=None, num_epochs=100, client_id=client_id, dataset_id=dataset_id)
-#         metrics_test[f"test_linear/client/{client_id}_{dataset_id}"] = client_test_acc
-#         if client_id == dataset_id:
-#             client_diagonal_accuracies_test.append(client_test_acc)
-#             client_diagonal_accuracies_train.append(client_train_acc)
-
-#         client_square_accuracies_test[client_id, dataset_id] = client_test_acc
-#         client_square_accuracies_train[client_id, dataset_id] = client_train_acc
-
-
-
-
-# metrics_test["test_linear/client/diagonal"] = np.mean(client_diagonal_accuracies_test)
-# metrics_test["test_linear/client/square"] = np.mean(client_square_accuracies_test)
-
-# heatmap = sns.heatmap(client_square_accuracies_test, annot=True, fmt='.2f', vmin=0, vmax=100, annot_kws={"size": 35 / np.sqrt(len(client_square_accuracies_test))}, )
-# plt.xlabel("Dataset")
-# plt.ylabel("Client")
-# metrics_test["test_linear/grid"] = wandb.Image(heatmap.get_figure(), caption="Accuracy per task heatmap")
-
-# metrics_test["test_linear/client/diagonal_train"] = np.mean(client_diagonal_accuracies_train)
-# metrics_test["test_linear/client/square_train"] = np.mean(client_square_accuracies_train)
-
-# plt.clf()
-# heatmap = sns.heatmap(client_square_accuracies_train, annot=True, fmt='.2f', vmin=0, vmax=100, annot_kws={"size": 35 / np.sqrt(len(client_square_accuracies_test))}, )
-# plt.xlabel("Dataset")
-# plt.ylabel("Client")
-# metrics_test["test_linear/grid_train"] = wandb.Image(heatmap.get_figure(), caption="Accuracy per task heatmap")
-
-
-# ious = get_client_iou_matrix(client_to_labels=client_to_labels)
-# heatmpap = sns.heatmap(ious, annot=True, fmt=".2f", vmax=100, annot_kws={"size": 35 / np.sqrt(len(ious))},)
-# metrics_test["test_linear/client_ious"] = wandb.Image(heatmpap.get_figure(), caption="Class-wise client IoUs")
-
-
-# eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 0.1, 1.0, False)
-# val_acc = sfl.semisupervise_eval(eval_loader[0], 100)
-# sfl.log(f"final semi-supervised evaluation accuracy with 10% data is {val_acc:.2f}")
-# metrics_test["test_semi/10"] = val_acc
-
-# eval_loader, _ = create_train_dataset(128, args.num_workers, False, 1, 0.01, 1.0, False)
-# val_acc = sfl.semisupervise_eval(eval_loader, 100)
-# sfl.log(f"final semi-supervised evaluation accuracy with 1% data is {val_acc:.2f}")
-# metrics_test["test_semi/1"] = val_acc
 
 sfl.log_metrics(metrics_test)
 
