@@ -331,24 +331,6 @@ class ResNet(nn.Module):
         num_of_cloud_layer += 1
         return num_of_cloud_layer
 
-        #code was duplicated
-        #if not self.cloud_classifier_merge:
-        #     list_of_layers = list(self.cloud.children())
-        #     for i, module in enumerate(list_of_layers):
-        #         if "conv3x3" in str(module) or "Linear" in str(module) or "BasicBlock" in str(module) or "BottleNeck" in str(module):
-        #             num_of_cloud_layer += 1
-        #     num_of_cloud_layer += 1
-        # else:
-        #     list_of_layers = list(self.cloud.children())
-        #     for i, module in enumerate(list_of_layers):
-        #         if "conv3x3" in str(module) or "Linear" in str(module) or "BasicBlock" in str(module) or "BottleNeck" in str(module):
-        #             num_of_cloud_layer += 1
-        # return num_of_cloud_layer
-
-    # def recover(self):
-    #     if self.cloud_classifier_merge:
-    #         self.resplit(self.original_num_cloud)
-    #         self.unmerge_classifier_cloud()
             
 
     def resplit(self, num_of_cloud_layer):

@@ -20,7 +20,6 @@ from functions.base_funtions import base_simulator, create_base_instance
 import torchvision.transforms as transforms
 import torch.nn.functional as F
 from models.resnet import init_weights, ResNet
-from queue_selection import QueueMatcher
 from utils import AverageMeter, accuracy
 import numpy as np
 
@@ -109,15 +108,7 @@ class sflmoco_simulator(base_simulator):
         self.eval()  #set to eval mode
         criterion = nn.CrossEntropyLoss()
     
-        # if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
         self.model.unmerge_classifier_cloud()
-        # if self.data_size == 32:
-        #     data_size_factor = 1
-        # elif self.data_size == 64:
-        #     data_size_factor = 4
-        # elif self.data_size == 96:
-        #     data_size_factor = 9
-        # classifier_list = [nn.Linear(self.K_dim * self.model.expansion, self.num_class)]
     
         if "ResNet" in self.arch or "resnet" in self.arch:
             if "resnet" in self.arch:
@@ -133,7 +124,6 @@ class sflmoco_simulator(base_simulator):
     
         linear_classifier.apply(init_weights)
     
-        # linear_optimizer = torch.optim.SGD(list(linear_classifier.parameters()), lr=lr, momentum=0.9, weight_decay=1e-4)
         linear_optimizer = torch.optim.Adam(list(linear_classifier.parameters()))
         linear_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(linear_optimizer, num_epochs//4)  # learning rate decay
     
@@ -292,19 +282,12 @@ class sflmoco_simulator(base_simulator):
             self.eval()
             classes = self.num_class
             total_top1, total_top5, total_num, feature_bank, feature_labels = 0.0, 0.0, 0, [], []
-            avg_pool = nn.AdaptiveAvgPool2d((1, 1))
 
             with torch.no_grad():
                 # generate feature bank
                 for i, (data, target) in enumerate(memloader[0]):
                     data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
 
-                    # if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
-                    #     output = self.model.local_list[client_id](data)
-                    #     output = self.model.cloud(output)
-                    #     output = avg_pool(output)
-                    #     feature = output.view(output.size(0), -1)
-                    # else:
                     feature = self.model(data)
 
                     feature = F.normalize(feature, dim=1)
@@ -314,18 +297,11 @@ class sflmoco_simulator(base_simulator):
                 feature_bank = torch.cat(feature_bank, dim=0).t().contiguous().cuda()
                 # [N]
                 feature_labels = torch.cat(feature_labels, dim=0).contiguous().cuda()
-                # feature_labels = torch.tensor(memory_data_loader.dataset.targets, device=feature_bank.device)
                 # loop test data to predict the label by weighted knn search
 
                 for i, (data, target) in enumerate(self.validate_loader):
                     data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
 
-                    # if isinstance(self.s_instance, create_sflmocoserver_personalized_instance):
-                    #     output = self.model.local_list[client_id](data)
-                    #     output = self.model.cloud(output)
-                    #     output = avg_pool(output)
-                    #     feature = output.view(output.size(0), -1)
-                    # else:
                     feature = self.model(data)
 
                     feature = F.normalize(feature, dim=1)
@@ -429,15 +405,12 @@ class create_sflmocoserver_instance(create_base_instance):
                 client_key = keys[client_id*batch_size:(client_id + 1)*batch_size]
                 ptr = int(self.queue_ptr[client_id])
                 # replace the keys at ptr (dequeue and enqueue)
-                # print(ptr, batch_size, self.K)
                 if (ptr + batch_size) <= self.K:
                     self.queue[client_id][:, ptr:ptr + batch_size] = client_key.T
                 else:
-                    # print(client_id, ptr, self.K - ptr)
                     self.queue[client_id][:, ptr:] = client_key.T[:, :self.K - ptr]
-                    # print(batch_size + ptr - self.K, self.K - ptr)
                     self.queue[client_id][:, 0:(batch_size + ptr - self.K)] = client_key.T[:, self.K - ptr:]
-                    # assert False
+
                 ptr = (ptr + batch_size) % self.K  # move pointer
                 self.queue_ptr[client_id][0] = ptr
 
@@ -551,7 +524,6 @@ class create_sflmocoserver_instance(create_base_instance):
         if query.grad is not None:
             query.grad.zero_()
 
-        # loss.backward(retain_graph = True)
         loss.backward()
 
         gradient = query.grad.detach().clone() # get gradient, the -1 is important, since updates are added to the weights in cpp.

@@ -26,7 +26,6 @@ from functions.sfl_functions import client_backward, loss_based_status
 from functions.attack_functions import MIA_attacker, MIA_simulator
 import gc
 from utils import get_time
-from queue_selection import get_queue_matcher, get_gradient_matcher
 
 VERBOSE = False
 
@@ -38,7 +37,6 @@ set_deterministic(args.seed)
 '''Preparing'''
 #get data
 create_dataset = getattr(datasets, f"get_{args.dataset}")
-# kwargs = dict(subset=args.domainnet_subset) if args.dataset == "domainnet" else dict()
 (
     per_client_train_loaders,
     mem_loader,
@@ -50,7 +48,6 @@ create_dataset = getattr(datasets, f"get_{args.dataset}")
     num_client = args.num_client, data_proportion = args.data_proportion,
     noniid_ratio = args.noniid_ratio, augmentation_option = True,
     pairloader_option = args.pairloader_option, hetero = args.hetero, hetero_string = args.hetero_string,
-    # **kwargs
 )
 get_time()
 num_batch = len(per_client_train_loaders[0])
@@ -119,13 +116,6 @@ predictor_list = []
 
 projector_input_dim = output_dim * global_model.expansion
 
-# if args.domain_tokens_injection == "cat":
-#     projector_input_dim = (
-#         (projector_input_dim + args.domain_tokens_shape)
-#         if args.domain_tokens_override != "onehot"
-#         else (projector_input_dim + + args.num_client)
-#     )
-
 if args.mlp:
     if args.moco_version == "largeV2": # This one uses a larger classifier, same as in Zhuang et al. Divergence-aware paper
         classifier_list = [nn.Linear(projector_input_dim, 4096),
@@ -137,45 +127,16 @@ if args.mlp:
                         nn.ReLU(True),
                         nn.Linear(args.K_dim * global_model.expansion, args.K_dim)]
 
-    elif args.moco_version == "byol":
-        projector_h_size = 4096
-        classifier_list = [
-            nn.Linear(projector_input_dim, projector_h_size),
-            nn.BatchNorm1d(projector_h_size),
-            nn.ReLU(True),
-            nn.Linear(projector_h_size, args.K_dim) # should be 256 in case of BYOL
-        ]
-
-        predictor_list = [
-            nn.Linear(args.K_dim, projector_h_size),
-            nn.BatchNorm1d(projector_h_size),
-            nn.ReLU(True),
-            nn.Linear(projector_h_size, args.K_dim)
-        ]
-
     else:
-        raise("Unknown version! Please specify the classifier.")
+        raise(f"Unknown {args.moco_version=}! Please specify the classifier.")
 
     projector = nn.Sequential(*classifier_list)
     projector.apply(init_weights)
     predictor = nn.Sequential(*predictor_list)
     predictor.apply(init_weights)
 
-    # if not args.sep_proj:
     global_model.classifier = projector
     global_model.predictor = predictor
-
-    # else:
-    #     # assert len(global_model.cloud)==0, f"{len(global_model.cloud)=}, but should be 0!"
-    #     projectors = []
-    #     predictors = []
-    #     for _ in range(args.num_client):
-    #         projectors.append(deepcopy(projector))
-    #         predictors.append(deepcopy(predictor))
-    #
-    #     global_model.classifier = nn.ModuleList(projectors)
-    #     global_model.predictor = nn.ModuleList(predictors)
-
 
 
 global_model.merge_classifier_cloud()
@@ -183,18 +144,12 @@ global_model.merge_classifier_cloud()
 #get loss function
 criterion = nn.CrossEntropyLoss().cuda()
 
-# qmatcher = get_queue_matcher(args)
-# gmatcher = get_gradient_matcher(args)
 
-# print(qmatcher)
 get_time()
 #initialize sfl
 sfl = sflmoco_simulator(
     global_model, criterion, per_client_train_loaders, test_loader,
     per_client_test_loader=per_client_test_loaders, args=args,
-    # queue_matcher=NoOpQueueMatcher()
-    # queue_matcher=qmatcher,
-    # new_implementation=NEW_IMPLEMENTATION
 )
 get_time()
 
@@ -247,18 +202,12 @@ if not args.resume:
         else:
             pool = np.random.choice(range(args.num_client), int(args.client_sample_ratio * args.num_client), replace=False) # 10 out of 1000
 
-        # sfl.cuda(pool=list(pool) + [0])
         gc.collect()
         avg_loss = 0.0
         avg_accu = 0.0
         avg_gan_train_loss = 0.0
         avg_gan_eval_loss = 0.0
 
-        # TODO [1] - keep the copy of avg. weights
-        # TODO [2] - before the epoch, assign avg. weights only to the clients in the pool
-        # TODO [3] - when fedavging, fedavg only clients in the pool
-        #  (only they are relevant - other clients will be fedavged when they are sampled)
-        # TODO [4] - after the training, broadcast the averaged parameters to all clients
         for batch in range(num_batch):
             sfl.optimizer_zero_grads()
 
@@ -273,14 +222,12 @@ if not args.resume:
                     query = query.cuda()
                     pkey = pkey.cuda()
 
-                    # print(query.shape, pkey.shape)
                     if sfl.s_instance.symmetric and not sfl.s_instance.symmetric_original:
                         query2 = torch.cat([query, pkey])
                         pkey2 = torch.cat([pkey, query])
                         query = query2
                         pkey = pkey2
 
-                    # assert False, (query.shape, pkey.shape)
                     hidden_query = sfl.c_instance_list[client_id](query) # pass to online
                     hidden_query_list[i] = hidden_query
                     with torch.no_grad():
@@ -370,7 +317,6 @@ if not args.resume:
 
                 client_backward(sfl, pool, gradient_dict)
             else:
-                # (optional) step client scheduler (lower its LR)
                 pass
 
             gc.collect()
@@ -395,7 +341,6 @@ if not args.resume:
         
         loss_status.record_loss(epoch, avg_loss)
 
-        # assert False, [type(m) for m in mem_loader]
         knn_val_acc = sfl.knn_eval(memloader=mem_loader)
         if args.cutlayer < 1:
             sfl.c_instance_list[0].cpu()
@@ -456,6 +401,5 @@ if args.attack:
     sfl.log(f"final knn evaluation accuracy is {val_acc:.2f}")
     MIA = MIA_attacker(sfl.model, per_client_train_loaders, args, "res_normN4C64")
     mse_score, ssim_score, psnr_score = MIA.MIA_attack()
-    
-    
+
     sfl.log_metrics({"attack/mse": mse_score, "attack/ssim": ssim_score, "attack/psnr": psnr_score})

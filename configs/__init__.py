@@ -76,27 +76,6 @@ def get_sfl_args():
     parser.add_argument('--divergence_aware', action='store_true', default=False, help="set consistency_loss to False")
     parser.add_argument("--fedavg-momentum", action="store_true", default=False)
     parser.add_argument('--div_lambda', type=float, default=1.0, help="divergence_aware_strength, if enable divergence_aware, increase strength means more personalization")
-    # parser.add_argument(
-    #     "--div_layerwise", choices=["constant", "fraction", "fraction_reversed"], default="constant",
-    #     help="""
-    #         if true, lambda for N-th layer will be expressed as f(div_lambda, N):
-    #             constant: f(d, N) = d (like before the refactor)
-    #             fraction: f(d, N) = d / N (divergence decreases with depth)
-    #             fraction_reversed: f(d, N) = N / <n_cutlayers> (divergence increases with depth)
-    #         """
-    # )
-    parser.add_argument(
-        "--disable_sync", action="store_true", default=False, help="disable weight synchronization",
-    )
-    # parser.add_argument(
-    #     "--eval-personalized", choices=["square", "diagonal"], default="square",
-    #     help="If square, I will evaluate all clients on all datasets. If diagonal, I will evaluate clients only on their respective datasets (so diagonal is a subset of square)."
-    # )
-    # parser.add_argument(
-    #     "--qmatching", choices=["noop", "oracle-most-similar", "oracle-least-similar"], default="noop"
-    # )
-    # parser.add_argument("--qmatching-nqueues", type=int, default=0)
-    # Moco setting
     parser.add_argument('--moco_version', type=str, default="V2", choices=["V1", "smallV2", "V2", "largeV2"], help="moco_version: V1, smallV2, V2, largeV2")
 
     parser.add_argument('--pairloader_option', type=str, default="None", help="set a pairloader option (results in augmentation differences), only enable it in contrastive learning, choice: mocov1, mocov2")
@@ -108,22 +87,9 @@ def get_sfl_args():
     
     # Moco-V2 setting
     parser.add_argument('--mlp', action='store_true', default=False, help="apply MLP head")
-    # parser.add_argument("--sep-proj", action="store_true", default=False,
-    #                     help="If true, use separate projector and predictor for each client. There must be no layers of server if this is set.")
-
     parser.add_argument('--aug_plus', action='store_true', default=False, help="apply extra augmentation (Gaussian Blur))")
     parser.add_argument('--cos', action='store_true', default=False, help="use cosannealing LR scheduler")
     parser.add_argument('--CLR_option', type=str, default="multistep", help="set a client LR scheduling option, no need to mannually set, binding with args.moco_version")
-
-    # parser.add_argument("--gmatching", type=str, choices=["noop", "oracle-most-similar"], default="noop")
-    # parser.add_argument("--gmatching-ngrads", type=int, default=0)
-
-    # parser.add_argument("--projection-space", type=str, default="common", choices=["common", "personalized"])
-    # parser.add_argument("--domain-tokens-injection", type=str, choices=["none", "cat", "add", "mul"], default="none")
-    # parser.add_argument("--domain-tokens-shape", type=int, default=64)
-    # parser.add_argument("--domain-tokens-override", default="none", choices=["none", "zero", "onehot"])
-    # parser.add_argument("--domainnet-subset", default=None, choices=["clipart", "infograph", "painting", "quickdraw", "real", "sketch", None])
-
     args = parser.parse_args()
 
     dataset_name_list = ["cifar10", "cifar100", "imagenet", "svhn", "stl10", "tinyimagenet", "imagenet12", "domainnet"]
@@ -160,12 +126,6 @@ def get_sfl_args():
             args.client_sample_ratio = 1 / (args.num_client // 100)
         else:
             args.client_sample_ratio = 1.0
-
-    # if args.projection_space=="personalized":
-    #     assert args.K_dim == 512, "With personalized projection space, I will maintain the queue of resnet outputs. Queue size should be equal to resnet output size (512)"
-
-    # if args.domain_tokens_injection in ["add", "mul"]:
-    #     assert args.domain_tokens_shape == 512, f"When, {args.domain_tokens_injection=}, their shape must match the shape of ResNet output (512)"
 
     if args.bottleneck_option == "None":
         args.adds_bottleneck = False
@@ -231,13 +191,7 @@ def get_sfl_args():
         args.pairloader_option = "mocov2"
         args.symmetric = True
         args.CLR_option = "highmomen"
-    elif args.moco_version == "byol":
-        args.mlp = True # use extra MLP head
-        args.cos = True # set cos annearling learning rate decay to true
-        args.K_dim = 1024 #128
-        args.pairloader_option = "mocov2"
-        args.symmetric = False
-        args.CLR_option = "cos"
+
 
     if args.client_sample_ratio != 1.0:
         args.num_epoch = args.num_epoch * int(1/args.client_sample_ratio)
@@ -425,6 +379,5 @@ def get_fl_args():
 
     assert not None in [args.output_dir, args.data_dir]
     os.makedirs(args.output_dir, exist_ok=True)
-    # assert args.stop_at_epoch <= args.num_epoch
 
     return args
