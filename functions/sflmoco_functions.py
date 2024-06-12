@@ -8,33 +8,67 @@ To understand how the training works in this implementation of SFL. We provide a
 Refer to He et al. Momentum Contrast for Unsupervised Visual Representation Learning for technical details.
 
 '''
+from typing import Optional, List
 
 import torch
 import copy
 import math
 import torch.nn as nn
+from tqdm import tqdm
+
 from functions.base_funtions import base_simulator, create_base_instance
 import torchvision.transforms as transforms
 import torch.nn.functional as F
-from models.resnet import init_weights
+from models.resnet import init_weights, ResNet
 from utils import AverageMeter, accuracy
 import numpy as np
 
 
 class sflmoco_simulator(base_simulator):
-    def __init__(self, model, criterion, train_loader, test_loader, args) -> None:
-        super().__init__(model, criterion, train_loader, test_loader, args)
-        
+    def __init__(self, model: ResNet, criterion, train_loader, test_loader, per_client_test_loader,
+                 # queue_matcher: QueueMatcher,
+                 args) -> None:
+        super().__init__(model, criterion, train_loader, test_loader, per_client_test_loader=per_client_test_loader, args=args)
+
+        print(f"Clients x {self.num_client}")
+
+        print(model.local_list[0])
+
+        print("Server")
+        print(model.cloud)
+        #
+        print("Projector")
+        print(model.classifier)
+        #
+        print("Predictor")
+        print(model.predictor)
+
+        # assert False
+
         # Create server instances
         if self.model.cloud is not None:
-            self.s_instance = create_sflmocoserver_instance(self.model.cloud, criterion, args, self.model.get_smashed_data_size(1, args.data_size), feature_sharing=args.feature_sharing)
-            self.s_optimizer = torch.optim.SGD(list(self.s_instance.model.parameters()), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-            
+
+            server_input_size = self.model.get_smashed_data_size(1, args.data_size)
+
+
+            self.s_instance = create_sflmocoserver_instance(
+                model=self.model.cloud,
+                criterion=criterion,
+                args=args,
+                server_input_size=server_input_size,
+                feature_sharing=args.feature_sharing,
+                # queue_matcher=queue_matcher
+            )
+            params_to_optimize = list(self.s_instance.model.parameters())
+
+
+            self.s_optimizer = torch.optim.SGD(params_to_optimize, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+
             if args.cos:
-                self.s_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.s_optimizer, self.num_epoch)  # learning rate decay 
+                self.s_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.s_optimizer, self.num_epoch)  # learning rate decay
             else:
                 milestones = [int(0.6*self.num_epoch), int(0.8*self.num_epoch)]
-                self.s_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.s_optimizer, milestones=milestones, gamma=0.1)  # learning rate decay 
+                self.s_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.s_optimizer, milestones=milestones, gamma=0.1)  # learning rate decay
 
         # Create client instances
         self.c_instance_list = []
@@ -44,7 +78,7 @@ class sflmoco_simulator(base_simulator):
         self.c_optimizer_list = [None for i in range(args.num_client)]
         for i in range(args.num_client):
             self.c_optimizer_list[i] = torch.optim.SGD(list(self.c_instance_list[i].model.parameters()), lr=args.c_lr, momentum=args.momentum, weight_decay=args.weight_decay)
-        
+
         self.c_scheduler_list = [None for i in range(args.num_client)]
         if args.cos:
             for i in range(args.num_client):
@@ -58,24 +92,24 @@ class sflmoco_simulator(base_simulator):
         self.data_size = args.data_size
         self.arch = args.arch
 
-    def linear_eval(self, memloader, num_epochs = 100, lr = 3.0): # Use linear evaluation
+    def linear_eval(self, memloader, num_epochs = 100, lr = 3.0, client_id: Optional[int] = None): # Use linear evaluation
+    
         """
         Run Linear evaluation
         """
+        # assert False, "Use linear_eval_v2 instead!"
+        assert (
+            (memloader is None or client_id is None)
+            and
+            ((memloader is not None) or (client_id is not None))
+        ), f"Exactly one of memloader / client_id must be None. {client_id=}"
+    
         self.cuda()
         self.eval()  #set to eval mode
         criterion = nn.CrossEntropyLoss()
-
+    
         self.model.unmerge_classifier_cloud()
-
-        # if self.data_size == 32:
-        #     data_size_factor = 1
-        # elif self.data_size == 64:
-        #     data_size_factor = 4
-        # elif self.data_size == 96:
-        #     data_size_factor = 9
-        # classifier_list = [nn.Linear(self.K_dim * self.model.expansion, self.num_class)]
-
+    
         if "ResNet" in self.arch or "resnet" in self.arch:
             if "resnet" in self.arch:
                 self.arch = "ResNet" + self.arch.split("resnet")[-1]
@@ -84,29 +118,38 @@ class sflmoco_simulator(base_simulator):
             output_dim = 512
         elif "MobileNetV2" in self.arch:
             output_dim = 1280
-
+    
         classifier_list = [nn.Linear(output_dim * self.model.expansion, self.num_class)]
         linear_classifier = nn.Sequential(*classifier_list)
-
+    
         linear_classifier.apply(init_weights)
-
-        # linear_optimizer = torch.optim.SGD(list(linear_classifier.parameters()), lr=lr, momentum=0.9, weight_decay=1e-4)
+    
         linear_optimizer = torch.optim.Adam(list(linear_classifier.parameters()))
-        linear_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(linear_optimizer, num_epochs//4)  # learning rate decay 
-
+        linear_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(linear_optimizer, num_epochs//4)  # learning rate decay
+    
         linear_classifier.cuda()
         linear_classifier.train()
-        
+    
         best_avg_accu = 0.0
         avg_pool = nn.AdaptiveAvgPool2d((1,1))
         # Train the linear layer
+    
+        train_loader = memloader[0] if memloader is not None else self.client_dataloader[client_id]
+        test_loader = self.validate_loader if memloader is not None else self.per_client_test_loaders[client_id]
+    
+        local_model_id = client_id if client_id is not None else 0
+    
         for epoch in range(num_epochs):
-            for input, label in memloader[0]:
+            for input, label in train_loader:
+    
+                if client_id is not None:
+                    input = input[0] # we take only one image from the pair
+    
                 linear_optimizer.zero_grad()
                 input = input.cuda()
                 label = label.cuda()
                 with torch.no_grad():
-                    output = self.model.local_list[0](input)
+                    output = self.model.local_list[local_model_id](input)
                     output = self.model.cloud(output)
                     output = avg_pool(output)
                     output = output.view(output.size(0), -1)
@@ -116,19 +159,19 @@ class sflmoco_simulator(base_simulator):
                 loss.backward()
                 linear_optimizer.step()
                 linear_scheduler.step()
-
+    
             """
             Run validation
             """
             top1 = AverageMeter()
-            
+    
             linear_classifier.eval()
-
-            for input, target in self.validate_loader:
+    
+            for input, target in test_loader:
                 input = input.cuda()
                 target = target.cuda()
                 with torch.no_grad():
-                    output = self.model.local_list[0](input)
+                    output = self.model.local_list[local_model_id](input)
                     output = self.model.cloud(output)
                     output = avg_pool(output)
                     output = output.view(output.size(0), -1)
@@ -139,12 +182,20 @@ class sflmoco_simulator(base_simulator):
             avg_accu = top1.avg
             if avg_accu > best_avg_accu:
                 best_avg_accu = avg_accu
-
-            print(f"Epoch: {epoch}, linear eval accuracy - current: {avg_accu:.2f}, best: {best_avg_accu:.2f}")
-        
+    
+            self.log_metrics({
+                "val_linear/iteration": epoch,
+                f"val_linear/{client_id}/avg": avg_accu,
+                f"val_linear/{client_id}/best": best_avg_accu,
+            })
+            print(f"{client_id=} Epoch: {epoch}, linear eval accuracy - current: {avg_accu:.2f}, best: {best_avg_accu:.2f}")
+    
         self.model.merge_classifier_cloud()
+        
         self.train()  #set back to train mode
         return best_avg_accu
+
+
 
 
     def semisupervise_eval(self, memloader, num_epochs = 100, lr = 3.0): # Use semi-supervised learning as evaluation
@@ -168,7 +219,7 @@ class sflmoco_simulator(base_simulator):
         # linear_optimizer = torch.optim.SGD(list(semi_classifier.parameters()), lr=lr, momentum=0.9, weight_decay=1e-4)
         linear_optimizer = torch.optim.Adam(list(semi_classifier.parameters()), lr=1e-3) # as in divergence-aware
         milestones = [int(0.6*num_epochs), int(0.8*num_epochs)]
-        linear_scheduler = torch.optim.lr_scheduler.MultiStepLR(linear_optimizer, milestones=milestones, gamma=0.1)  # learning rate decay 
+        linear_scheduler = torch.optim.lr_scheduler.MultiStepLR(linear_optimizer, milestones=milestones, gamma=0.1)  # learning rate decay
 
         semi_classifier.cuda()
         semi_classifier.train()
@@ -192,12 +243,12 @@ class sflmoco_simulator(base_simulator):
                 loss.backward()
                 linear_optimizer.step()
                 linear_scheduler.step()
-            
+
             """
             Run validation
             """
             top1 = AverageMeter()
-            
+
             semi_classifier.eval()
 
             for input, target in self.validate_loader:
@@ -218,12 +269,12 @@ class sflmoco_simulator(base_simulator):
             if avg_accu > best_avg_accu:
                 best_avg_accu = avg_accu
             print(f"Epoch: {epoch}, linear eval accuracy - current: {avg_accu:.2f}, best: {best_avg_accu:.2f}")
-        
+
         self.model.merge_classifier_cloud()
         self.train()  #set back to train mode
         return best_avg_accu
 
-    def knn_eval(self, memloader): # Use linear evaluation
+    def knn_eval(self, memloader, client_id: int=0): # Use linear evaluation
         if self.c_instance_list:
             self.c_instance_list[0].cuda()
         # test using a knn monitor
@@ -231,10 +282,14 @@ class sflmoco_simulator(base_simulator):
             self.eval()
             classes = self.num_class
             total_top1, total_top5, total_num, feature_bank, feature_labels = 0.0, 0.0, 0, [], []
+
             with torch.no_grad():
                 # generate feature bank
-                for data, target in memloader[0]:
-                    feature = self.model(data.cuda(non_blocking=True))
+                for i, (data, target) in enumerate(memloader[0]):
+                    data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
+
+                    feature = self.model(data)
+
                     feature = F.normalize(feature, dim=1)
                     feature_bank.append(feature)
                     feature_labels.append(target)
@@ -242,13 +297,15 @@ class sflmoco_simulator(base_simulator):
                 feature_bank = torch.cat(feature_bank, dim=0).t().contiguous().cuda()
                 # [N]
                 feature_labels = torch.cat(feature_labels, dim=0).contiguous().cuda()
-                # feature_labels = torch.tensor(memory_data_loader.dataset.targets, device=feature_bank.device)
                 # loop test data to predict the label by weighted knn search
-                for data, target in self.validate_loader:
+
+                for i, (data, target) in enumerate(self.validate_loader):
                     data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
+
                     feature = self.model(data)
+
                     feature = F.normalize(feature, dim=1)
-                    
+
                     pred_labels = knn_predict(feature, feature_bank, feature_labels, classes, 200, 0.1)
 
                     total_num += data.size(0)
@@ -282,11 +339,14 @@ class sflmoco_simulator(base_simulator):
         return test_acc_1
 
 class create_sflmocoserver_instance(create_base_instance):
-    def __init__(self, model, criterion, args, server_input_size = 1, feature_sharing = True) -> None:
+    def __init__(self, model, criterion, args,
+                 # queue_matcher: QueueMatcher,
+                 server_input_size = 1, feature_sharing = True) -> None:
         super().__init__(model)
         self.criterion = criterion
         self.t_model = copy.deepcopy(model)
         self.symmetric = args.symmetric
+        self.symmetric_original = args.symmetric_original
         self.batch_size = args.batch_size
         self.num_client = args.num_client
         for param_t in self.t_model.parameters():
@@ -294,6 +354,7 @@ class create_sflmocoserver_instance(create_base_instance):
 
         self.K = args.K
         self.T = args.T
+        # self.queue_matcher = queue_matcher
 
         self.feature_sharing = feature_sharing
         if self.feature_sharing:
@@ -305,11 +366,14 @@ class create_sflmocoserver_instance(create_base_instance):
             self.queue = []
             self.queue_ptr = []
             for _ in range(self.num_client):
-                self.queue.append(torch.randn(args.K_dim, self.K).cuda())
+                queue = torch.randn(args.K_dim, self.K).cuda()
+                queue = nn.functional.normalize(queue, dim=0)
+                self.queue.append(queue)
                 self.queue_ptr.append(torch.zeros(1, dtype=torch.long))
+
     def __call__(self, input):
         return self.forward(input)
-    
+
     def forward(self, input):
         output = self.model(input)
         return output
@@ -321,7 +385,6 @@ class create_sflmocoserver_instance(create_base_instance):
         if self.feature_sharing:
             batch_size = keys.shape[0]
             ptr = int(self.queue_ptr)
-            
             # replace the keys at ptr (dequeue and enqueue)
             if (ptr + batch_size) <= self.K:
                 self.queue[:, ptr:ptr + batch_size] = keys.T
@@ -333,6 +396,9 @@ class create_sflmocoserver_instance(create_base_instance):
             self.queue_ptr[0] = ptr
         else:
             batch_size = self.batch_size
+            if self.symmetric:
+                batch_size = batch_size * 2
+
             if pool is None:
                 pool = range(self.num_client)
             for client_id in pool:
@@ -344,6 +410,7 @@ class create_sflmocoserver_instance(create_base_instance):
                 else:
                     self.queue[client_id][:, ptr:] = client_key.T[:, :self.K - ptr]
                     self.queue[client_id][:, 0:(batch_size + ptr - self.K)] = client_key.T[:, self.K - ptr:]
+
                 ptr = (ptr + batch_size) % self.K  # move pointer
                 self.queue_ptr[client_id][0] = ptr
 
@@ -374,7 +441,13 @@ class create_sflmocoserver_instance(create_base_instance):
 
 
     def contrastive_loss(self, query, pkey, pool = None):
-        query_out = self.model(query)
+
+        if not isinstance(self.model, nn.ModuleList):
+            query_out = self.model(query)
+        else:
+            assert len(query.shape) == 2
+            # by this point, embeddings should have been processed by the spearete projection heads and therefore flattened
+            query_out = query
 
         query_out = nn.functional.normalize(query_out, dim = 1)
 
@@ -382,24 +455,30 @@ class create_sflmocoserver_instance(create_base_instance):
 
             pkey_, idx_unshuffle = self._batch_shuffle_single_gpu(pkey)
 
-            pkey_out = self.t_model(pkey_)
+            if not isinstance(self.model, nn.ModuleList):
+                pkey_out = self.t_model(pkey_)
+            else:
+                assert len(pkey_.shape) == 2
+                pkey_out = pkey_
 
             pkey_out = nn.functional.normalize(pkey_out, dim = 1).detach()
 
             pkey_out = self._batch_unshuffle_single_gpu(pkey_out, idx_unshuffle)
 
         l_pos = torch.einsum('nc,nc->n', [query_out, pkey_out]).unsqueeze(-1)
-        
+
         if self.feature_sharing:
             l_neg = torch.einsum('nc,ck->nk', [query_out, self.queue.clone().detach()])
+
         else:
+            step_size = self.batch_size if not self.symmetric else self.batch_size * 2
             if pool is None:
                 pool = range(self.num_client)
             l_neg_list = []
             for client_id in pool:
                 l_neg_list.append(torch.einsum(
                     'nc,ck->nk', [
-                        query_out[client_id*self.batch_size:(client_id + 1)*self.batch_size],
+                        query_out[client_id*step_size:(client_id + 1)*step_size],
                         self.queue[client_id].clone().detach()
                     ]
                 ))
@@ -408,7 +487,7 @@ class create_sflmocoserver_instance(create_base_instance):
         logits = torch.cat([l_pos, l_neg], dim=1)
 
         logits /= self.T
-        
+
         labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
 
         loss = self.criterion(logits, labels)
@@ -417,15 +496,19 @@ class create_sflmocoserver_instance(create_base_instance):
 
         return loss, accu, query_out, pkey_out
 
-    def compute(self, query, pkey, update_momentum = True, enqueue = True, tau = 0.99, pool = None):
-        query.requires_grad=True
+    def compute(
+            self, query: torch.Tensor, pkey: torch.Tensor,
+            update_momentum = True, enqueue = True, tau = 0.99, pool = None
+    ):
+        if not query.requires_grad:
+            query.requires_grad = True
 
         query.retain_grad()
 
         if update_momentum:
             self.update_moving_average(tau)
 
-        if self.symmetric:
+        if self.symmetric_original:
             loss12, accu, q1, k2 = self.contrastive_loss(query, pkey, pool)
             loss21, accu, q2, k1 = self.contrastive_loss(pkey, query, pool)
             loss = loss12 + loss21
@@ -440,18 +523,17 @@ class create_sflmocoserver_instance(create_base_instance):
 
         if query.grad is not None:
             query.grad.zero_()
-        
-        # loss.backward(retain_graph = True)
+
         loss.backward()
 
         gradient = query.grad.detach().clone() # get gradient, the -1 is important, since updates are added to the weights in cpp.
 
         return error, gradient, accu[0]
-    
+
     def cuda(self):
         self.model.cuda()
         self.t_model.cuda()
-    
+
     def cpu(self):
         self.model.cpu()
         self.t_model.cpu()
@@ -463,7 +545,7 @@ class create_sflmococlient_instance(create_base_instance):
         self.t_model = copy.deepcopy(model)
         for param_t in self.t_model.parameters():
             param_t.requires_grad = False  # not update by gradient
-    
+
     def __call__(self, input):
         return self.forward(input)
 
@@ -481,11 +563,13 @@ class create_sflmococlient_instance(create_base_instance):
         tau = 0.99 # default value in moco
         for online, target in zip(self.model.parameters(), self.t_model.parameters()):
             target.data = tau * target.data + (1 - tau) * online.data
-    
+
     def cuda(self):
         self.model.cuda()
         self.t_model.cuda()
-    
+
     def cpu(self):
         self.model.cpu()
         self.t_model.cpu()
+
+

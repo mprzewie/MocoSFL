@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Dict, Set, Tuple, List
 
 import torch
 import numpy as np
@@ -10,9 +11,17 @@ import sys
 import wandb
 from PIL import ImageFilter
 import random
+from datetime import datetime
 from torchvision.utils import make_grid
 # import matplotlib.pyplot as plt
 formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+
+
+def get_time():
+    now = datetime.now()
+    formatted_datetime = now.strftime("%Y-%m-%d %H:%M:%S")
+    print("Aktualna data i godzina:", formatted_datetime)
+
 
 def setup_logger(name, log_file, level=logging.INFO, console_out = True):
     """To setup as many loggers as you want"""
@@ -90,17 +99,32 @@ class DatasetSplit(torch.utils.data.Dataset):
         images, labels = self.dataset[self.idxs[item]]
         return images, labels
 
-def get_multiclient_trainloader_list(training_data, num_client, shuffle, num_workers, batch_size, noniid_ratio = 1.0, num_class = 10, hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2"):
+
+def get_multiclient_trainloader_list(
+        training_data, num_client, shuffle, num_workers, batch_size, noniid_ratio = 1.0, num_class = 10, hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2"
+) -> Tuple[List[torch.utils.data.DataLoader], Dict[int, Set[int]]]:
     #mearning of default hetero_string = "C_D|B" - dividing clients into two groups, stronger group: C clients has D of the data (batch size = B); weaker group: the other (1-C) clients have (1-D) of the data (batch size = 1).
+
     if num_client == 1:
         training_loader_list = [torch.utils.data.DataLoader(training_data,  batch_size=batch_size, shuffle=shuffle,
                 num_workers=num_workers)]
+        client_to_labels = {
+            c: set(list(range(num_class)))
+            for c in range(len(training_loader_list))
+        }
+
     elif num_client > 1:
         if noniid_ratio < 1.0:
-            training_subset_list = noniid_alllabel(training_data, num_client, noniid_ratio, num_class, hetero, hetero_string) # TODO: implement non_iid_hetero version.
-        
+            training_subset_list, client_to_labels = noniid_alllabel(training_data, num_client, noniid_ratio, num_class, hetero, hetero_string) # TODO: implement non_iid_hetero version.
+            print({k: len(v) for (k,v ) in training_subset_list.items()})
+        else:
+            client_to_labels = {
+                c: set(list(range(num_class)))
+                for c in range(num_client)
+            }
         training_loader_list = []
-        
+
+
 
         if hetero:
             rich_data_ratio = float(hetero_string.split("|")[-1].split("_")[0])
@@ -119,17 +143,15 @@ def get_multiclient_trainloader_list(training_data, num_client, shuffle, num_wor
                     elif i >= rich_client:
                         heteor_list = list(range(rich_data_volume + (i - rich_client) * (len(training_data) - rich_data_volume) // (num_client - rich_client), rich_data_volume + (i - rich_client + 1) * (len(training_data) - rich_data_volume) // (num_client - rich_client)))
                         training_subset = torch.utils.data.Subset(training_data, heteor_list)
-                
+
             else:
                 training_subset = DatasetSplit(training_data, training_subset_list[i])
             # print(len(training_subset))
             if not hetero:
-                if num_workers > 0:
-                    subset_training_loader = torch.utils.data.DataLoader(
-                        training_subset, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size, persistent_workers = True)
-                else:
-                    subset_training_loader = torch.utils.data.DataLoader(
-                        training_subset, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size, persistent_workers = False)
+                subset_training_loader = torch.utils.data.DataLoader(
+                    training_subset, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size,
+                    persistent_workers=(num_workers > 0)
+                )
             else:
                 if i < rich_client:
                     real_batch_size = batch_size * int(hetero_string.split("|")[1])
@@ -143,8 +165,9 @@ def get_multiclient_trainloader_list(training_data, num_client, shuffle, num_wor
                         training_subset, shuffle=shuffle, num_workers=num_workers, batch_size=real_batch_size, persistent_workers = False)
                 # print(f"batch size is {real_batch_size}")
             training_loader_list.append(subset_training_loader)
-    
-    return training_loader_list
+
+
+    return training_loader_list, client_to_labels
 
 
 class Subset(torch.utils.data.Dataset):
@@ -281,7 +304,11 @@ def divergence_plot(path_to_log, freq = 1):
 
 
 
-def noniid_alllabel(dataset, num_users, noniid_ratio = 0.2, num_class = 10, hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2"):
+def noniid_alllabel(
+        dataset, num_users, noniid_ratio = 0.2, num_class = 10, hetero = False, hetero_string = "0.2_0.8|16|0.8_0.2"
+) -> Tuple[Dict[int, Set[int]], Dict[int, Set[int]]]:
+    assert not hetero
+    print("noniid_alllabel", num_users, noniid_ratio, num_class, hetero)
     num_class_per_client = int(noniid_ratio * num_class)
     # 500 clients -> *5 = 2500 clients.
     if hetero:
@@ -293,10 +320,14 @@ def noniid_alllabel(dataset, num_users, noniid_ratio = 0.2, num_class = 10, hete
         rich_client_gets_shards = int((1-num_shards_multiplier)/num_shards_multiplier) # each get 4 shards
     else:
         num_shards, num_imgs = num_class_per_client * num_users, int(len(dataset)/num_users/num_class_per_client)
+        print(f"{num_shards=}, {num_imgs=}")
+        # assert False, (num_shards, num_imgs)
     # print(f"num_shards: {num_shards}, num_imgs: {num_imgs}")
 
     idx_shard = [i for i in range(num_shards)]
     dict_users_labeled = {i: np.array([], dtype='int64') for i in range(num_users)}
+    dict_labels = {i: np.array([], dtype='int64') for i in range(num_users)}
+
     idxs = np.arange(len(dataset))
     labels = np.arange(len(dataset))
     for i in range(len(dataset)):
@@ -306,9 +337,16 @@ def noniid_alllabel(dataset, num_users, noniid_ratio = 0.2, num_class = 10, hete
             labels[i] = dataset[i][1]
 
     # sort labels
+    # print(idxs[:1000])
+    # print(labels[:1000])
     idxs_labels = np.vstack((idxs, labels))
     idxs_labels = idxs_labels[:,idxs_labels[1,:].argsort()]
     idxs = idxs_labels[0,:]
+    labels = idxs_labels[1, :]
+
+    # print(idxs_labels[1, :1000])
+    # assert False
+
 
     # divide and assign
     if not hetero:
@@ -316,7 +354,17 @@ def noniid_alllabel(dataset, num_users, noniid_ratio = 0.2, num_class = 10, hete
             rand_set = set(np.random.choice(idx_shard, num_class_per_client, replace=False))
             idx_shard = list(set(idx_shard) - rand_set)
             for rand in rand_set:
-                dict_users_labeled[i] = np.concatenate((dict_users_labeled[i], idxs[rand*num_imgs:(rand+1)*num_imgs]), axis=0)
+                beg, end = rand*num_imgs, (rand+1)*num_imgs
+                dict_users_labeled[i] = np.concatenate((dict_users_labeled[i], idxs[beg:end]), axis=0)
+                dict_labels[i] = np.concatenate((dict_labels[i], labels[beg:end]), axis=0)
+
+            dict_labels[i] = set(dict_labels[i])
+            # client_labels = set(idxs_labels[1, dict_users_labeled[i]])
+
+            # print(i, rand_set,)# client_labels)
+            # print(dict_labels[i])
+            # print("----")
+
     else:
         virtual_num_user = rich_client * rich_client_gets_shards + num_users - rich_client
         for i in range(virtual_num_user):
@@ -334,13 +382,14 @@ def noniid_alllabel(dataset, num_users, noniid_ratio = 0.2, num_class = 10, hete
         # print(f"user {i} has {len(dict_users_labeled[i])} images")
         dict_users_labeled[i] = set(dict_users_labeled[i])
 
-    return dict_users_labeled
+    return dict_users_labeled, dict_labels
 
 
 def maybe_setup_wandb(logdir, args=None, run_name_suffix=None, **init_kwargs):
 
     wandb_entity = os.environ.get("WANDB_ENTITY")
     wandb_project = os.environ.get("WANDB_PROJECT")
+    wandb_sh_filepath = os.environ.get("WANDB_SH_FILEPATH")
 
     if wandb_entity is None or wandb_project is None:
         print(f"{wandb_entity=}", f"{wandb_project=}")
@@ -373,8 +422,22 @@ def maybe_setup_wandb(logdir, args=None, run_name_suffix=None, **init_kwargs):
         group=origin_run_name,
         **init_kwargs
     )
+    wandb.save(wandb_sh_filepath)
 
     print("WANDB run", wandb.run.id, new_run_name, origin_run_name)
+
+def get_client_iou_matrix(client_to_labels: Dict[int, Set[int]]) -> np.ndarray:
+    n_clients = len(client_to_labels)
+    ious = np.zeros((n_clients, n_clients))
+
+    for i in range(n_clients):
+        for j in range(n_clients):
+            intersection = set(client_to_labels[i]).intersection(client_to_labels[j])
+            union = set(client_to_labels[i]).union(client_to_labels[j])
+            ious[i,j] = len(intersection) / len(union)
+
+    return ious
+
 
 if __name__ == '__main__':
     #avgfreq

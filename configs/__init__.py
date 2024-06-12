@@ -18,7 +18,7 @@ def set_deterministic(seed):
         print("Non-deterministic")
 
 def get_sfl_args():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--debug', action='store_true')
 
     # training specific args
@@ -29,7 +29,7 @@ def get_sfl_args():
     parser.add_argument('--num_epoch', type=int, default=200)
     parser.add_argument('--seed', type=int, default=1234)
     parser.add_argument('--num_workers', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=12)
     parser.add_argument('--data_dir', type=str, default='./data/')
     parser.add_argument('--output_dir', type=str, default='./outputs/')
     parser.add_argument('--lr', type=float, default=0.05, help="server-side model learning rate")
@@ -39,6 +39,10 @@ def get_sfl_args():
     parser.add_argument('--resume', action='store_true', default=False, help="resume from checkpoint")
     parser.add_argument('--data_size', type=int, default=32, help="dimension size of input data")
     parser.add_argument('--avg_freq', type=int, default=1, help="frequency to perform fedavg per round")
+
+    parser.add_argument('--load_model', action='store_true', default=False, help="load model to resume training")
+    parser.add_argument('--break_epoch', type=int, default=-1, help="at which epoch to stop training")
+
 
     # Split Learning Setting (Basic)
     parser.add_argument('--num_client', type=int, default=1)
@@ -63,19 +67,21 @@ def get_sfl_args():
     parser.add_argument('--MIA_arch', type=str, default="custom", help="simulated MIA architecture, the more complex, the better quality")
     parser.add_argument('--attack', action='store_true', default=False, help="set MIA_attack option")
     parser.add_argument('--auto_adjust', action='store_true', default=False, help="auto_adjust some recommended hyperparameters")
+    parser.add_argument('--dont_adjust_batch_size_for_large_clients', action='store_true', default=False, help="omit adjusting batch_size from auto_adjust for clients > 100")
     parser.add_argument('--divergence_measure', action='store_true', default=False, help="for each fedavg, measure model divergence")
     parser.add_argument('--disable_feature_sharing', action='store_true', default=False, help="disable_feature_sharing")
     parser.add_argument('--initialze_path', type=str, default="None", help="set relative path to find the initial model, i.e.: ./outputs/expert/xx")
 
     # Split Learning Non-IID specific Setting (Advanced)
     parser.add_argument('--divergence_aware', action='store_true', default=False, help="set consistency_loss to False")
+    parser.add_argument("--fedavg-momentum", action="store_true", default=False)
     parser.add_argument('--div_lambda', type=float, default=1.0, help="divergence_aware_strength, if enable divergence_aware, increase strength means more personalization")
-  
-    # Moco setting
-    parser.add_argument('--moco_version', type=str, default="V2", help="moco_version: V1, smallV2, V2, largeV2")
+    parser.add_argument('--moco_version', type=str, default="V2", choices=["V1", "smallV2", "V2", "largeV2"], help="moco_version: V1, smallV2, V2, largeV2")
+
     parser.add_argument('--pairloader_option', type=str, default="None", help="set a pairloader option (results in augmentation differences), only enable it in contrastive learning, choice: mocov1, mocov2")
     parser.add_argument('--K', type=int, default=6000, help="max number of keys stored in queue")
     parser.add_argument('--symmetric', action='store_true', default=False, help="enable symmetric contrastive loss, can improve accuracy")
+    parser.add_argument('--symmetric_original', action='store_true', default=False, help="original symmetric implementation ")
     parser.add_argument('--K_dim', type=int, default=128, help="dimension size of key")
     parser.add_argument('--T', type=float, default=0.1, help="Temperature of InfoCE loss")
     
@@ -86,7 +92,7 @@ def get_sfl_args():
     parser.add_argument('--CLR_option', type=str, default="multistep", help="set a client LR scheduling option, no need to mannually set, binding with args.moco_version")
     args = parser.parse_args()
 
-    dataset_name_list = ["cifar10", "cifar100", "imagenet", "svhn", "stl10", "tinyimagenet", "imagenet12"]
+    dataset_name_list = ["cifar10", "cifar100", "imagenet", "svhn", "stl10", "tinyimagenet", "imagenet12", "domainnet"]
     if args.dataset not in dataset_name_list:
         raise NotImplementedError
 
@@ -94,14 +100,27 @@ def get_sfl_args():
         args.c_lr = args.lr
 
     '''Auto adjust fedavg frequency, batch size and client sampling ratio according to num_client'''
+
     if args.auto_adjust:
-        if args.num_client <= 50:
-            args.batch_size = 100 // args.num_client
+        if not args.disable_feature_sharing:
+            prev_bs = args.batch_size
+            if args.num_client <= 50:
+                args.batch_size = args.batch_size // args.num_client
+            else:
+                if args.dont_adjust_batch_size_for_large_clients:
+                    args.batch_size = args.batch_size // args.num_client
+                else:
+                    args.batch_size = 1
+
+            print(f"{args.K=}")
+            print(f"Auto adjusted batch-size from {prev_bs} to {args.batch_size}")
         else:
-            args.batch_size = 1
-        
+            print(f"{args.batch_size=}")
+            print(f"Auto adjusted queue size from {args.K} to {args.K * args.num_client}")
+            args.K = args.K * args.num_client
+
         if args.num_client <= 1000:
-            args.avg_freq = 1000 // (args.batch_size * args.num_client) # num_step per epoch.
+            args.avg_freq = max(1, 1000 // (args.batch_size * args.num_client)) # num_step per epoch.
 
         if args.num_client >= 200:
             args.client_sample_ratio = 1 / (args.num_client // 100)
@@ -128,6 +147,8 @@ def get_sfl_args():
     else:
         args.c_residual = True
 
+    assert args.moco_version == "V2"
+
     '''Pre-fix moco version settings '''
     if args.moco_version == "V1":
         args.mlp = False
@@ -145,7 +166,7 @@ def get_sfl_args():
     elif args.moco_version == "V2":
         args.mlp = True # use extra MLP head
         args.cos = True # set cos annearling learning rate decay to true
-        args.K_dim = 1024
+        args.K_dim = 1024 #if args.projection_space == "common" else 512
         args.pairloader_option = "mocov2"
         args.symmetric = True
         args.CLR_option = "cos"
@@ -170,7 +191,8 @@ def get_sfl_args():
         args.pairloader_option = "mocov2"
         args.symmetric = True
         args.CLR_option = "highmomen"
-    
+
+
     if args.client_sample_ratio != 1.0:
         args.num_epoch = args.num_epoch * int(1/args.client_sample_ratio)
 
@@ -204,6 +226,9 @@ def get_sfl_args():
         args.data_size = 224
     elif args.dataset == "imagenet12":
         args.num_class = 12
+        args.data_size = 224
+    elif args.dataset == "domainnet":
+        args.num_class = 345
         args.data_size = 224
     else:
         raise("UNKNOWN DATASET!")
@@ -354,6 +379,5 @@ def get_fl_args():
 
     assert not None in [args.output_dir, args.data_dir]
     os.makedirs(args.output_dir, exist_ok=True)
-    # assert args.stop_at_epoch <= args.num_epoch
 
     return args

@@ -16,8 +16,8 @@ import torch.nn as nn
 import numpy as np
 from functions.base_funtions import base_simulator, create_base_instance
 class sfl_simulator(base_simulator):
-    def __init__(self, model, criterion, train_loader, test_loader, args) -> None:
-        super().__init__(model, criterion, train_loader, test_loader, args)
+    def __init__(self, model, criterion, train_loader, test_loader, per_client_test_loaders, args) -> None:
+        super().__init__(model, criterion, train_loader, test_loader,  per_client_test_loaders, args)
 
         # Create instances
         self.s_instance = create_sflserver_instance(self.model.cloud, criterion)

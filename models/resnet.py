@@ -258,24 +258,35 @@ class ResNet(nn.Module):
 
         self.cloud = feature[1]
         self.classifier = nn.Linear(512*expansion, num_class)
+        self.predictor = nn.Identity()
+
         self.cloud_classifier_merge = False
         self.original_num_cloud = self.get_num_of_cloud_layer()
 
         # Initialize weights
         self.cloud.apply(init_weights)
         self.classifier.apply(init_weights)
+
         self.avg_pool = nn.AdaptiveAvgPool2d((1,1))
     def forward(self, x, client_id = 0):
         if self.cloud_classifier_merge:
             x = self.local_list[client_id](x)
-            x = self.cloud(x)
+
+            if isinstance(self.cloud, nn.ModuleList):
+                x = self.cloud[client_id](x)
+            else:
+                x = self.cloud(x)
         else:
             x = self.local_list[client_id](x)
             x = self.cloud(x)
             # x = F.avg_pool2d(x, 4)
             x = self.avg_pool(x)
             x = x.view(x.size(0), -1)
-            x = self.classifier(x)
+
+            if isinstance(self.classifier, nn.ModuleList):
+                x = self.classifier[client_id](x)
+            else:
+                x = self.classifier(x)
         return x
     def __call__(self, x, client_id = 0):
         return self.forward(x, client_id)
@@ -283,13 +294,26 @@ class ResNet(nn.Module):
     def merge_classifier_cloud(self):
         self.cloud_classifier_merge = True
         cloud_list = list(self.cloud.children())
-        cloud_list.append(MobView())
-        cloud_list.append(self.classifier)
-        self.cloud = nn.Sequential(*cloud_list)
+
+        if not isinstance(self.classifier, nn.ModuleList):
+            cloud_list.append(MobView())
+            cloud_list.append(self.classifier)
+            self.cloud = nn.Sequential(*cloud_list)
+        else:
+            self.cloud = nn.ModuleList(
+                [
+                    nn.Sequential(*(cloud_list + [MobView(), proj]))
+                    for proj in self.classifier
+                ]
+            )
 
     def unmerge_classifier_cloud(self):
+
         self.cloud_classifier_merge = False
-        cloud_list = list(self.cloud.children())
+
+        cloud = self.cloud if not isinstance(self.cloud, nn.ModuleList) else self.cloud[0]
+
+        cloud_list = list(cloud.children())
         orig_cloud_list = []
         for i, module in enumerate(cloud_list):
             if "MobView" in str(module):
@@ -300,23 +324,13 @@ class ResNet(nn.Module):
 
     def get_num_of_cloud_layer(self):
         num_of_cloud_layer = 0
-        if not self.cloud_classifier_merge:
-            list_of_layers = list(self.cloud.children())
-            for i, module in enumerate(list_of_layers):
-                if "conv3x3" in str(module) or "Linear" in str(module) or "BasicBlock" in str(module) or "BottleNeck" in str(module):
-                    num_of_cloud_layer += 1
-            num_of_cloud_layer += 1
-        else:
-            list_of_layers = list(self.cloud.children())
-            for i, module in enumerate(list_of_layers):
-                if "conv3x3" in str(module) or "Linear" in str(module) or "BasicBlock" in str(module) or "BottleNeck" in str(module):
-                    num_of_cloud_layer += 1
+        list_of_layers = list(self.cloud.children())
+        for i, module in enumerate(list_of_layers):
+            if "conv3x3" in str(module) or "Linear" in str(module) or "BasicBlock" in str(module) or "BottleNeck" in str(module):
+                num_of_cloud_layer += 1
+        num_of_cloud_layer += 1
         return num_of_cloud_layer
 
-    def recover(self):
-        if self.cloud_classifier_merge:
-            self.resplit(self.original_num_cloud)
-            self.unmerge_classifier_cloud()
             
 
     def resplit(self, num_of_cloud_layer):

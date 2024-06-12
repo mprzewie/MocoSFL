@@ -1,3 +1,6 @@
+.idea/
+*.out
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -142,3 +145,9 @@ replay_tensors/
 !expert_target_aware/**/*.tar
 !expert_target_aware/**/*.log
 !plots/*.png
+
+# visual and slurm logs
+slurm-*.out
+wandb/
+
+DomainNet/
